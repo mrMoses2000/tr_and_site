@@ -200,11 +200,20 @@ def test_ast_preserves_image_blocks_and_normalization_provenance(tmp_path):
     assert runs
     assert all(run.source.sourceSha256 == "b" * 64 for run in runs)
     assert all(run.source.bbox for run in runs)
+    assert "".join(run.text for run in runs) == "арсенале"
     figures = [block for block in result.blocks if isinstance(block, FigureBlock)]
     assert figures
     assert figures[0].source is not None
     assert figures[0].source.sourceSha256 == "b" * 64
     assert result.normalization_provenance
+    dehyphenation = [
+        operation
+        for evidence in result.normalization_provenance
+        for operation in evidence["operations"]
+        if operation["kind"] == "line_end_dehyphenation"
+    ]
+    assert dehyphenation
+    assert any("run_ids" in evidence for evidence in result.normalization_provenance)
     assert result.printed_label == "12"
 
 def test_fidelity_validator_catches_dropped_digits():

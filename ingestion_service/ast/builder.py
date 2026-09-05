@@ -30,6 +30,75 @@ class DocumentAstBuilder:
             )
         return source_sha256.lower()
 
+    @staticmethod
+    def _normalize_runs(
+        runs: List[InlineRun],
+        block_id: str,
+        normalization_provenance: List[Dict[str, Any]],
+    ) -> None:
+        """Normalize runs while preserving each run's marks and source anchor.
+
+        PyMuPDF may split a visual line break into two spans, so a soft
+        hyphen can be the final characters of one run while the continuation
+        word starts in the next run (for example ``арсе#\\n`` + ``нале``).
+        Normalizing each run independently misses that case.  Remove only the
+        separator from the first run; keeping both runs means their marks and
+        source bboxes remain intact and the renderer still joins them into one
+        word.
+        """
+        for run in runs:
+            normalized = normalize_text(run.text)
+            if normalized.operations:
+                normalization_provenance.append(
+                    {
+                        "block_id": block_id,
+                        "run_id": run.id,
+                        "raw_text": normalized.raw_text,
+                        "normalized_text": normalized.normalized_text,
+                        "operations": normalized.operations,
+                    }
+                )
+            run.text = normalized.normalized_text
+
+        separator_pattern = re.compile(r"(?P<separator>#\n|\x1e\n|-\n)$")
+        word_pattern = re.compile(r"[а-яА-ЯёЁa-zA-Z]+")
+        for previous, following in zip(runs, runs[1:]):
+            previous_raw = previous.text
+            following_raw = following.text
+            separator_match = separator_pattern.search(previous_raw)
+            if not separator_match or not re.match(r"[а-яА-ЯёЁa-zA-Z]", following_raw):
+                continue
+
+            separator = separator_match.group("separator")
+            previous.text = previous_raw[: separator_match.start()]
+            prefix_match = re.search(r"[а-яА-ЯёЁa-zA-Z]+$", previous.text)
+            following_match = word_pattern.match(following_raw)
+            if not prefix_match or not following_match:
+                previous.text = previous_raw
+                continue
+
+            normalized_start = prefix_match.start()
+            normalized_end = len(previous.text) + following_match.end()
+            normalization_provenance.append(
+                {
+                    "block_id": block_id,
+                    "run_id": f"{previous.id}+{following.id}",
+                    "run_ids": [previous.id, following.id],
+                    "raw_text": previous_raw + following_raw,
+                    "normalized_text": previous.text + following_raw,
+                    "operations": [
+                        {
+                            "kind": "line_end_dehyphenation",
+                            "raw_range": [separator_match.start(), len(previous_raw)],
+                            "normalized_range": [normalized_start, normalized_end],
+                            "original_separator": separator,
+                            "reason": "visual_line_continuation+lexicon",
+                            "confidence": 0.98,
+                        }
+                    ],
+                }
+            )
+
     def build_page(
         self,
         page: fitz.Page,
@@ -280,20 +349,10 @@ class DocumentAstBuilder:
             if max_font_size >= 14.0 or (len(full_block_text) < 80 and any(t in full_block_text for t in heading_triggers)):
                 is_heading = True
 
-            # Normalize run texts reversibly
-            for r in runs:
-                norm = normalize_text(r.text)
-                if norm.operations:
-                    normalization_provenance.append(
-                        {
-                            "block_id": blk_id,
-                            "run_id": r.id,
-                            "raw_text": norm.raw_text,
-                            "normalized_text": norm.normalized_text,
-                            "operations": norm.operations,
-                        }
-                    )
-                r.text = norm.normalized_text
+            # Normalize run texts reversibly, including separators split across
+            # adjacent PyMuPDF spans.  Run-level style and source anchors stay
+            # attached to their original run objects.
+            self._normalize_runs(runs, blk_id, normalization_provenance)
 
             if is_heading:
                 ast_blocks.append(
