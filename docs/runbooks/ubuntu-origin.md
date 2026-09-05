@@ -104,8 +104,16 @@ origin service after a successful `caddy validate`; there is no reload socket.
 ## Rollback and restore
 
 - Application rollback: inspect `readlink -f /srv/logos/current`, then use the
-  existing release promoter rollback operation. Do not delete a release while
-  it may be referenced by `current` or `previous`.
+  checksum-validating release promoter. Do not delete a release while it may
+  be referenced by `current` or `previous`.
+
+  ```bash
+  .venv/bin/python scripts/rollback_release.py \
+    --confirm-rollback \
+    --staging-dir /srv/logos/staging \
+    --releases-dir /srv/logos/releases \
+    --current-pointer /srv/logos/current
+  ```
 - Origin rollback: `sudo systemctl restart logos-origin.service`; if the
   configuration is invalid, restore the last known-good `/etc/logos/Caddyfile`
   from the operator's protected backup and re-run validation.

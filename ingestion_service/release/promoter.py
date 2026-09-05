@@ -245,6 +245,7 @@ class ReleasePromoter:
             prev_target = self._existing_pointer_target(previous_symlink)
             if prev_target is None:
                 return False
+            self.validator.validate_staged_release(prev_target)
 
             token = f"{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}"
             tmp_curr = parent_dir / f".current.rollback.tmp.{token}"

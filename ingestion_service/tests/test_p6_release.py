@@ -121,13 +121,24 @@ def test_atomic_promotion_and_rollback_pointer(tmp_path):
     staging_dir = tmp_path / "staging"
     current_symlink = tmp_path / "current"
 
-    # Initial release v1
+    staging_mgr = StagingManager(staging_dir)
+    # Initial release v1 must itself be checksum-valid: rollback never points
+    # at an unverified historical directory.
+    initial_stage = staging_mgr.create_stage("job-initial", "test", "rel-v1")
+    staging_mgr.stage_manifest("job-initial", {
+        "schemaVersion": "2.0",
+        "slug": "test",
+        "pageRange": {"start": 1, "end": 1},
+        "pages": [{"pageNumber": 1, "imageSrc": "/scans/test/page_1.webp"}],
+    })
+    initial_scan = initial_stage / "scans" / "test" / "page_1.webp"
+    initial_scan.parent.mkdir(parents=True, exist_ok=True)
+    initial_scan.write_bytes(b"WEBP0")
+    staging_mgr.compute_checksums("job-initial")
     v1_dir = releases_dir / "rel-v1"
-    v1_dir.mkdir(parents=True)
-    (v1_dir / "manifest.json").write_text('{"version": "1.0"}')
+    initial_stage.rename(v1_dir)
     current_symlink.symlink_to(v1_dir)
 
-    staging_mgr = StagingManager(staging_dir)
     promoter = ReleasePromoter(releases_dir, current_symlink, staging_mgr)
 
     # Stage valid v2
