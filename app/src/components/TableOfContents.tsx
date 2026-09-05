@@ -11,6 +11,16 @@ interface TableOfContentsProps {
   onSelectPage: (page: number) => void;
   bookTitleRu: string;
   authorRu: string;
+  availableBooks?: Array<{
+    slug: string;
+    title: string;
+    titleRu: string;
+    author: string;
+    authorRu: string;
+    totalPages: number;
+  }>;
+  currentBookSlug?: string;
+  onSelectBook?: (slug: string) => void;
 }
 
 export const TableOfContents: FC<TableOfContentsProps> = ({
@@ -22,6 +32,9 @@ export const TableOfContents: FC<TableOfContentsProps> = ({
   onSelectPage,
   bookTitleRu,
   authorRu,
+  availableBooks = [],
+  currentBookSlug,
+  onSelectBook,
 }) => {
   const [filter, setFilter] = useState('');
 
@@ -35,11 +48,11 @@ export const TableOfContents: FC<TableOfContentsProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex bg-black/40 backdrop-blur-xs animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-end sm:items-stretch bg-black/50 backdrop-blur-xs animate-in fade-in duration-200"
       onClick={onClose}
     >
       <aside
-        className="flex h-full w-full max-w-md flex-col border-r shadow-2xl transition-all"
+        className="flex w-full sm:max-w-md max-h-[88dvh] sm:h-full sm:max-h-full flex-col rounded-t-3xl sm:rounded-none border-t sm:border-t-0 sm:border-r shadow-2xl transition-all"
         style={{
           backgroundColor: 'var(--bg-primary)',
           borderColor: 'var(--border-strong)',
@@ -47,6 +60,9 @@ export const TableOfContents: FC<TableOfContentsProps> = ({
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Drag handle on mobile */}
+        <div className="sheet-handle sm:hidden" />
+
         {/* Header */}
         <div className="flex h-14 items-center justify-between border-b px-5" style={{ borderColor: 'var(--border-subtle)' }}>
           <div className="flex items-center space-x-2.5">
@@ -72,10 +88,32 @@ export const TableOfContents: FC<TableOfContentsProps> = ({
           <div className="text-sm font-bold mt-0.5 leading-snug" style={{ color: 'var(--text-primary)' }}>
             {bookTitleRu}
           </div>
-          <div className="mt-1 text-xs opacity-75">
-            Приложение (стр. 867–888) • 22 страницы
-          </div>
         </div>
+
+        {/* Multi-Book Library Selector */}
+        {availableBooks.length > 1 && (
+          <div className="border-b px-4 py-2.5" style={{ backgroundColor: 'var(--bg-card)', borderColor: 'var(--border-subtle)' }}>
+            <label className="text-[10px] font-bold uppercase tracking-wider opacity-60 block mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+              Книга из каталога:
+            </label>
+            <select
+              value={currentBookSlug}
+              onChange={(e) => onSelectBook?.(e.target.value)}
+              className="w-full rounded-lg px-2.5 py-1.5 text-xs font-medium outline-hidden transition-all"
+              style={{
+                backgroundColor: 'var(--bg-secondary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-subtle)',
+              }}
+            >
+              {availableBooks.map((b) => (
+                <option key={b.slug} value={b.slug}>
+                  {b.titleRu} ({b.authorRu})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Search filter input */}
         <div className="p-3 border-b" style={{ borderColor: 'var(--border-subtle)' }}>

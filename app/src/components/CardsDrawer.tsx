@@ -96,15 +96,22 @@ export const CardsDrawer: FC<CardsDrawerProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs transition-opacity duration-200">
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-stretch sm:justify-end bg-black/50 backdrop-blur-xs transition-opacity duration-200"
+      onClick={onClose}
+    >
       <div
-        className="relative flex h-full w-full max-w-xl flex-col border-l shadow-2xl transition-transform"
+        className="relative flex w-full sm:max-w-xl max-h-[88dvh] sm:h-full sm:max-h-full flex-col rounded-t-3xl sm:rounded-none border-t sm:border-t-0 sm:border-l shadow-2xl transition-all"
         style={{
           backgroundColor: 'var(--bg-primary)',
           borderColor: 'var(--border-subtle)',
           color: 'var(--text-primary)',
         }}
+        onClick={(e) => e.stopPropagation()}
       >
+        {/* Drag handle on mobile */}
+        <div className="sheet-handle sm:hidden" />
+
         {/* Drawer Header */}
         <div className="flex items-center justify-between border-b p-5" style={{ borderColor: 'var(--border-subtle)' }}>
           <div className="flex items-center space-x-2.5">

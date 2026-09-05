@@ -113,3 +113,29 @@ html, body {
   background-color: var(--accent-soft);
   color: var(--text-primary);
 }
+
+/* Mobile Ergonomics, Viewport & Safe Area adjustments */
+@supports (padding: env(safe-area-inset-bottom)) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+.touch-pan-y {
+  touch-action: pan-y;
+}
+
+/* Native Mobile Bottom Sheet Handle */
+.sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background-color: var(--border-strong);
+  margin: 8px auto 12px auto;
+  opacity: 0.6;
+}

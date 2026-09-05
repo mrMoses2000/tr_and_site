@@ -1,0 +1,14 @@
+[Unit]
+Description=Digital Book Reader Telegram Bot & agy CLI Ingestion Daemon
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/moses/tr_and_site
+ExecStart=/home/moses/tr_and_site/.venv/bin/python -m ingestion_service.bot
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

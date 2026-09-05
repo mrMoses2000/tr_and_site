@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { bookManifest } from '../data/bookManifest';
+import { getBookManifest, registeredBooks, getAllBooksSummary } from '../data/library/libraryRegistry';
 import { clampPage, getNextPage, getPrevPage, canGoNext, canGoPrev } from './pagination';
 import { calculateProgress } from './progress';
 import { defaultStorage } from '../infrastructure/storage';
@@ -7,8 +7,20 @@ import type { ReaderSettings, ReaderMode, PageData, FootnotePair, ResearchCard }
 import { createResearchCard, type CreateCardInput } from './cards';
 
 export function useReader() {
-  const minPage = bookManifest.startPage;
-  const maxPage = bookManifest.endPage;
+  const getInitialBookSlug = () => {
+    if (typeof window !== 'undefined' && window.location.hash) {
+      const match = window.location.hash.match(/book=([a-zA-Z0-9_-]+)/);
+      if (match && registeredBooks[match[1]]) {
+        return match[1];
+      }
+    }
+    return 'schreiner-ntt';
+  };
+
+  const [currentBookSlug, setCurrentBookSlug] = useState<string>(getInitialBookSlug);
+  const manifest = useMemo(() => getBookManifest(currentBookSlug), [currentBookSlug]);
+  const minPage = manifest.startPage;
+  const maxPage = manifest.endPage;
 
   // Initialize page from URL hash (e.g. #page=870) or localStorage
   const initialPage = useMemo(() => {
@@ -60,13 +72,30 @@ export function useReader() {
     });
   }, []);
 
+  // Select a book from library
+  const selectBook = useCallback((slug: string) => {
+    if (registeredBooks[slug]) {
+      setCurrentBookSlug(slug);
+      const targetManifest = registeredBooks[slug];
+      setCurrentPage(targetManifest.startPage);
+      if (typeof window !== 'undefined') {
+        window.location.hash = `book=${slug}&page=${targetManifest.startPage}`;
+      }
+      const readerArea = document.getElementById('reader-scroll-container');
+      if (readerArea && typeof readerArea.scrollTo === 'function') {
+        readerArea.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      setActiveFootnote(null);
+    }
+  }, []);
+
   // Update URL hash and save last page
   const goToPage = useCallback((page: number) => {
     const clamped = clampPage(page, minPage, maxPage);
     setCurrentPage(clamped);
     defaultStorage.saveLastPage(clamped);
     if (typeof window !== 'undefined') {
-      window.location.hash = `page=${clamped}`;
+      window.location.hash = `book=${currentBookSlug}&page=${clamped}`;
     }
     // Scroll content container to top
     const readerArea = document.getElementById('reader-scroll-container');
@@ -74,7 +103,7 @@ export function useReader() {
       readerArea.scrollTo({ top: 0, behavior: 'smooth' });
     }
     setActiveFootnote(null);
-  }, [minPage, maxPage]);
+  }, [minPage, maxPage, currentBookSlug]);
 
   const nextPage = useCallback(() => {
     goToPage(getNextPage(currentPage, maxPage));
@@ -131,14 +160,14 @@ export function useReader() {
 
   // Current page data
   const currentPageData: PageData = useMemo(() => {
-    const found = bookManifest.pages.find(p => p.pageNumber === currentPage);
-    return found || bookManifest.pages[0];
-  }, [currentPage]);
+    const found = manifest.pages.find(p => p.pageNumber === currentPage);
+    return found || manifest.pages[0];
+  }, [currentPage, manifest]);
 
   // Progress computation
   const progress = useMemo(() => {
-    return calculateProgress(currentPage, bookManifest.pages);
-  }, [currentPage]);
+    return calculateProgress(currentPage, manifest.pages);
+  }, [currentPage, manifest]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -206,7 +235,10 @@ export function useReader() {
   }, [nextPage, prevPage, cycleMode]);
 
   return {
-    manifest: bookManifest,
+    manifest,
+    currentBookSlug,
+    selectBook,
+    availableBooks: getAllBooksSummary(),
     currentPage,
     currentPageData,
     progress,

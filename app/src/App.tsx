@@ -16,6 +16,9 @@ import { HelpCircle, X, Keyboard, Minimize2, ChevronLeft, ChevronRight } from 'l
 export function App() {
   const {
     manifest,
+    currentBookSlug,
+    selectBook,
+    availableBooks,
     currentPage,
     currentPageData,
     progress,
@@ -90,6 +93,31 @@ export function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleFullscreen]);
+
+  // Touch swipe handling for mobile page turning
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      setTouchStart({ x: e.touches[0].clientX, y: e.touches[0].clientY });
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStart || e.changedTouches.length === 0) return;
+    const deltaX = e.changedTouches[0].clientX - touchStart.x;
+    const deltaY = e.changedTouches[0].clientY - touchStart.y;
+    setTouchStart(null);
+
+    // Minimum swipe threshold: 60px horizontal, with horizontal movement dominating vertical by 1.4x
+    if (Math.abs(deltaX) > 60 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4) {
+      if (deltaX < 0 && canGoNext) {
+        nextPage();
+      } else if (deltaX > 0 && canGoPrev) {
+        prevPage();
+      }
+    }
+  };
 
   return (
     <div
@@ -186,7 +214,9 @@ export function App() {
       {/* Main Reader Scroll Area */}
       <main
         id="reader-scroll-container"
-        className={`flex-1 overflow-y-auto px-4 py-8 sm:px-6 lg:px-8 transition-all duration-200 ${
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        className={`flex-1 overflow-y-auto px-4 py-8 sm:px-6 lg:px-8 transition-all duration-200 touch-pan-y ${
           isScanSplit ? 'lg:pr-[45%]' : ''
         } ${isFullscreen ? 'py-12 sm:py-16' : ''}`}
       >
@@ -281,6 +311,9 @@ export function App() {
         onSelectPage={goToPage}
         bookTitleRu={manifest.titleRu}
         authorRu={manifest.authorRu || manifest.author}
+        availableBooks={availableBooks}
+        currentBookSlug={currentBookSlug}
+        onSelectBook={selectBook}
       />
 
       {/* Search Modal */}

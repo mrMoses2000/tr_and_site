@@ -51,6 +51,7 @@ export interface TocItem {
 }
 
 export interface BookManifest {
+  slug?: string;
   title: string;
   titleRu: string;
   subtitle?: string;
