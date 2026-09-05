@@ -21,20 +21,14 @@ from .config import (
 )
 from .db import init_db, create_job, get_job, get_recent_jobs, update_job
 from .pipeline import IngestionPipeline
+from .pdf_extractor import PDFExtractor, slugify_cyrillic
+from .lang_detector import detect_language, get_language_options
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s"
 )
 logger = logging.getLogger("telegram_bot")
-
-def generate_slug(filename: str) -> str:
-    base = Path(filename).stem
-    slug = re.sub(r'[^a-zA-Z0-9_-]', '-', base).strip('-').lower()
-    slug = re.sub(r'-+', '-', slug)
-    if not slug:
-        slug = f"book-{uuid.uuid4().hex[:6]}"
-    return slug
 
 def render_progress_bar(processed: int, total: int) -> str:
     if total <= 0:
@@ -74,7 +68,7 @@ async def safe_edit_message(
     except TelegramBadRequest as e:
         err_msg = str(e).lower()
         if "message is not modified" not in err_msg:
-            # Fallback to plain text if entity error occurs
+            # Fallback to plain text if HTML parsing error occurs
             try:
                 clean_text = re.sub(r'<[^>]+>', '', text)
                 await bot.edit_message_text(
@@ -100,8 +94,8 @@ async def handle_start(message: types.Message):
         "в современную интерактивную веб-читалку с поддержкой казахского, русского и оригинального языков.\n\n"
         "✨ <b>Возможности системы:</b>\n"
         "• <b>🇰🇿 Перевод на казахский язык:</b> академический богословский перевод (академиялық қазақша теологиялық аударма).\n"
-        "• <b>🇷🇺 Перевод на русский язык:</b> параллельный двуязычный текст и сноски.\n"
-        "• <b>📖 Публикация в оригинале:</b> для готовых книг на русском, казахском, английском без перевода.\n"
+        "• <b>🇷🇺 Перевод на русский язык:</b> параллельный двуязычный текст и интерактивные сноски.\n"
+        "• <b>📖 Публикация в оригинале:</b> для готовых книг на русском, казахском, английском с извлечением структуры.\n"
         "• <b>⚡ Автодеплой:</b> сборка, прогон тестов Vitest и моментальная публикация на Netlify.\n\n"
         "📥 <b>Чтобы начать:</b> просто отправьте сюда PDF-файл книги!"
     )
@@ -121,8 +115,12 @@ async def handle_library(message: types.Message):
         "📚 <b>Каталог библиотеки читалки:</b>\n\n"
         "1. <b>Размышления о богословии Нового Завета</b>\n"
         "   ✍️ Томас Р. Шрейнер (Baker Academic)\n"
-        "   📄 Стр. 867–888 • 22 стр. • Двуязычный режим + сноски\n"
+        "   📄 Стр. 867–888 • Двуязычный режим + сноски\n"
         "   🔗 <a href='https://harmonious-hotteok-0204c0.netlify.app/#book=schreiner-ntt&amp;page=867'>Открыть книгу</a>\n\n"
+        "2. <b>Герменевтическая спираль</b>\n"
+        "   ✍️ Грант Р. Осборн (ЕААА)\n"
+        "   📄 736 стр. • Академическое издание со сносками и оглавлением\n"
+        "   🔗 <a href='https://harmonious-hotteok-0204c0.netlify.app/#book=ozborn-germenevticheskaya-spiral&amp;page=10'>Открыть книгу</a>\n\n"
         "Чтобы добавить новую книгу, просто пришлите сюда PDF-файл!"
     )
     await message.answer(text, parse_mode="HTML")
@@ -139,7 +137,7 @@ async def handle_status(message: types.Message):
         bar = render_progress_bar(j.processed_pages, j.total_pages)
         safe_name = html.escape(j.file_name)
         target = getattr(j, "target_lang", "kk")
-        lang_badge = {"kk": "🇰🇿 Казахский", "ru": "🇷🇺 Русский", "original": "📖 Оригинал"}.get(target, target)
+        lang_badge = {"kk": "🇰🇿 Казахский", "ru": "🇷🇺 Русский", "original": "📖 Оригинал", "en": "🇬🇧 Английский"}.get(target, target)
         lines.append(
             f"• <b>{safe_name}</b> (<code>{j.id}</code>) — {lang_badge}\n"
             f"  Статус: {j.status} {bar}\n"
@@ -162,7 +160,8 @@ async def process_pdf_task(
     lang_title = {
         "kk": "🇰🇿 Казахский академический (Қазақша)",
         "ru": "🇷🇺 Русский академический",
-        "original": "📖 Публикация в оригинале (без перевода)"
+        "original": "📖 Публикация в оригинале (без перевода)",
+        "en": "🇬🇧 Английский академический (English)"
     }.get(target_lang, target_lang)
 
     async def on_progress(text: str, processed: int, total: int):
@@ -222,7 +221,8 @@ async def handle_mode_selection(callback: CallbackQuery, bot: Bot):
     lang_title = {
         "kk": "🇰🇿 Казахский академический (Қазақша)",
         "ru": "🇷🇺 Русский академический",
-        "original": "📖 В оригинале (без перевода)"
+        "original": "📖 В оригинале (без перевода)",
+        "en": "🇬🇧 Английский академический (English)"
     }.get(target_lang, target_lang)
 
     await safe_edit_message(
@@ -232,7 +232,7 @@ async def handle_mode_selection(callback: CallbackQuery, bot: Bot):
         f"⏳ <b>Запуск конвейера...</b>\n\n"
         f"📖 <b>Книга:</b> «{safe_name}»\n"
         f"🌐 <b>Выбран режим:</b> {lang_title}\n\n"
-        f"Извлечение текста и WebP-сканов страниц..."
+        f"Извлечение текста, сносок и WebP-сканов страниц..."
     )
 
     asyncio.create_task(
@@ -265,16 +265,14 @@ async def handle_document(message: types.Message, bot: Bot):
         return
 
     job_id = uuid.uuid4().hex[:8]
-    slug = generate_slug(file_name)
     save_path = INBOX_DIR / f"{job_id}_{file_name}"
     safe_name = html.escape(file_name)
 
-    # Initial confirmation message
     init_msg = await message.reply(
         f"📥 <b>Файл получен!</b>\n\n"
         f"📖 <b>Файл:</b> «{safe_name}»\n"
         f"🆔 <b>Задача:</b> <code>{job_id}</code>\n"
-        f"⏳ Скачивание документа...",
+        f"⏳ Скачивание и анализ структуры документа...",
         parse_mode="HTML"
     )
 
@@ -286,7 +284,27 @@ async def handle_document(message: types.Message, bot: Bot):
         await init_msg.edit_text(f"❌ Не удалось скачать файл: {safe_err}", parse_mode="HTML")
         return
 
-    # Register in DB with WAITING_MODE status
+    # Extract real metadata and detect document language
+    try:
+        extractor = PDFExtractor(save_path)
+        meta = extractor.get_metadata()
+        total_pages = extractor.total_pages
+        detected_lang = meta.get("sourceLanguage", "unknown")
+        real_title = meta.get("title") or Path(file_name).stem
+        real_author = meta.get("authorRu") or meta.get("author") or "Неизвестный автор"
+        publisher = meta.get("publisher", "")
+        extractor.close()
+    except Exception as e:
+        logger.warning(f"Error inspecting PDF metadata: {e}")
+        detected_lang = "ru"
+        real_title = Path(file_name).stem
+        real_author = "Неизвестный автор"
+        publisher = ""
+        total_pages = 0
+
+    slug = slugify_cyrillic(real_title)
+
+    # Register in DB
     create_job(
         job_id=job_id,
         telegram_user_id=message.from_user.id if message.from_user else 0,
@@ -295,40 +313,36 @@ async def handle_document(message: types.Message, bot: Bot):
         file_name=file_name,
         file_path=str(save_path),
         book_slug=slug,
-        target_lang="kk"
+        target_lang="original" if detected_lang == "ru" else "kk"
     )
 
-    # Ask user for desired mode / language
+    # Generate tailored language choices
+    options = get_language_options(detected_lang)
+    keyboard_buttons = [
+        [InlineKeyboardButton(text=opt["label"], callback_data=f"mode:{opt['code']}:{job_id}")]
+        for opt in options
+    ]
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+
+    lang_names = {
+        "ru": "🇷🇺 Русский",
+        "kk": "🇰🇿 Казахский (Қазақша)",
+        "en": "🇬🇧 Английский (English)",
+        "unknown": "❓ Не определен"
+    }
+    lang_display = lang_names.get(detected_lang, detected_lang)
+
     mode_text = (
-        f"📥 <b>Файл успешно скачан!</b>\n\n"
-        f"📖 <b>Книга:</b> «{safe_name}»\n"
-        f"🆔 <b>Задача:</b> <code>{job_id}</code>\n\n"
-        f"<b>Выберите необходимый режим обработки:</b>\n"
-        f"• <b>Казахский:</b> богословский перевод на қазақ тілі + оригинал\n"
-        f"• <b>Русский:</b> академический перевод на русский язык + оригинал\n"
-        f"• <b>В оригинале:</b> быстрая публикация без перевода (для готовых книг)"
+        f"📥 <b>Книга успешно проанализирована!</b>\n\n"
+        f"📖 <b>Название:</b> «{html.escape(real_title)}»\n"
+        f"✍️ <b>Автор:</b> {html.escape(real_author)}\n"
     )
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🇰🇿 Перевести на казахский (KK)",
-                    callback_data=f"mode:kk:{job_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🇷🇺 Перевести на русский (RU)",
-                    callback_data=f"mode:ru:{job_id}"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📖 Опубликовать в оригинале (без перевода)",
-                    callback_data=f"mode:original:{job_id}"
-                )
-            ]
-        ]
+    if publisher:
+        mode_text += f"🏢 <b>Издательство:</b> {html.escape(publisher)}\n"
+    mode_text += (
+        f"📄 <b>Объем:</b> {total_pages} стр.\n"
+        f"🌐 <b>Язык оригинала:</b> {lang_display}\n\n"
+        f"<b>Выберите необходимый режим обработки:</b>"
     )
 
     await safe_edit_message(bot, message.chat.id, init_msg.message_id, mode_text, reply_markup=keyboard)
@@ -337,7 +351,6 @@ async def main():
     init_db()
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
     logger.info("Starting Telegram Bot with Long Polling (outbound HTTPS satisfying Telegram requirements)...")
-    
     await bot.delete_webhook(drop_pending_updates=False)
     
     try:

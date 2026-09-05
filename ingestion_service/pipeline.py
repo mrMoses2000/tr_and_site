@@ -67,27 +67,6 @@ class IngestionPipeline:
             metadata = extractor.get_metadata()
             total_pages = extractor.total_pages
             
-            extracted_pages = []
-            for idx in range(total_pages):
-                page_num = idx + 1
-                text = extractor.extract_page_text(idx)
-                img_path = extractor.render_page_as_webp(idx, scans_dir, slug)
-                extracted_pages.append({
-                    "pageNumber": page_num,
-                    "text": text,
-                    "imagePath": str(img_path)
-                })
-                if page_num % 5 == 0 or page_num == total_pages:
-                    await notify(
-                        "EXTRACTING",
-                        f"📄 Извлечено {page_num} из {total_pages} страниц...",
-                        page_num,
-                        total_pages
-                    )
-            
-            extractor.close()
-
-            # Step 2: Translation & Paragraph Alignment via agy CLI
             target_lang = getattr(job, "target_lang", "kk") or "kk"
             lang_label = {
                 "kk": "на казахский язык (Қазақша)",
@@ -95,14 +74,45 @@ class IngestionPipeline:
                 "original": "в оригинале (без перевода)"
             }.get(target_lang, target_lang)
 
+            all_pages: List[Dict[str, Any]] = []
+
             if target_lang == "original":
-                await notify(
-                    "TRANSLATING",
-                    f"📑 Структурирование страниц и сносок в оригинале (0/{total_pages})...",
-                    0,
-                    total_pages
-                )
+                # High-precision direct extraction without AI overhead
+                for idx in range(total_pages):
+                    page_num = idx + 1
+                    img_path = extractor.render_page_as_webp(idx, scans_dir, slug)
+                    structured_page = extractor.extract_page_structure(idx)
+                    structured_page["imagePath"] = str(img_path)
+                    all_pages.append(structured_page)
+
+                    if page_num % 10 == 0 or page_num == total_pages:
+                        await notify(
+                            "EXTRACTING",
+                            f"📑 Структурирование страниц и сносок ({page_num}/{total_pages})...",
+                            page_num,
+                            total_pages
+                        )
             else:
+                # Step 1.1: Extract raw text & render scans
+                extracted_pages = []
+                for idx in range(total_pages):
+                    page_num = idx + 1
+                    text = extractor.extract_page_text(idx)
+                    img_path = extractor.render_page_as_webp(idx, scans_dir, slug)
+                    extracted_pages.append({
+                        "pageNumber": page_num,
+                        "text": text,
+                        "imagePath": str(img_path)
+                    })
+                    if page_num % 10 == 0 or page_num == total_pages:
+                        await notify(
+                            "EXTRACTING",
+                            f"📄 Извлечено {page_num} из {total_pages} страниц...",
+                            page_num,
+                            total_pages
+                        )
+
+                # Step 1.2: Translation via agy CLI
                 await notify(
                     "TRANSLATING",
                     f"🧠 Богословский перевод {lang_label} через agy CLI (0/{total_pages})...",
@@ -110,32 +120,31 @@ class IngestionPipeline:
                     total_pages
                 )
 
-            all_translated_pages: List[Dict[str, Any]] = []
-            batch_chunks = [
-                extracted_pages[i : i + self.batch_size]
-                for i in range(0, len(extracted_pages), self.batch_size)
-            ]
+                batch_chunks = [
+                    extracted_pages[i : i + self.batch_size]
+                    for i in range(0, len(extracted_pages), self.batch_size)
+                ]
 
-            processed_count = 0
-            for batch in batch_chunks:
-                translated_batch = await self.bridge.translate_batch(
-                    pages_data=batch,
-                    book_title=metadata.get("title", slug),
-                    author=metadata.get("author", "Unknown"),
-                    target_lang=target_lang
-                )
-                for item in translated_batch:
-                    all_translated_pages.append(item.model_dump())
+                processed_count = 0
+                for batch in batch_chunks:
+                    translated_batch = await self.bridge.translate_batch(
+                        pages_data=batch,
+                        book_title=metadata.get("title", slug),
+                        author=metadata.get("author", "Unknown"),
+                        target_lang=target_lang
+                    )
+                    for item in translated_batch:
+                        all_pages.append(item.model_dump())
 
-                processed_count += len(batch)
-                stage_label = "Обработано" if target_lang == "original" else "Переведено"
-                await notify(
-                    "TRANSLATING",
-                    f"🧠 {stage_label} {processed_count} из {total_pages} страниц ({lang_label})...",
-                    processed_count,
-                    total_pages
-                )
+                    processed_count += len(batch)
+                    await notify(
+                        "TRANSLATING",
+                        f"🧠 Переведено {processed_count} из {total_pages} страниц ({lang_label})...",
+                        processed_count,
+                        total_pages
+                    )
 
+            extractor.close()
             metadata["targetLanguage"] = target_lang
 
             # Step 3: Compiling manifest & running Vitest Quality Gate
@@ -148,7 +157,7 @@ class IngestionPipeline:
             await self.publisher.compile_manifest(
                 slug=slug,
                 metadata=metadata,
-                pages=all_translated_pages,
+                pages=all_pages,
                 scans_source_dir=scans_dir
             )
 
@@ -179,13 +188,7 @@ class IngestionPipeline:
             update_job(job_id, status="DEPLOYED", live_url=live_url)
             return live_url
 
-        except Exception as err:
-            err_text = str(err)
-            logger.error(f"Pipeline error for job {job_id}: {err}", exc_info=True)
-            update_job(job_id, status="FAILED", error_message=err_text)
-            if on_progress:
-                try:
-                    await on_progress(f"❌ Ошибка обработки книги: {err_text}", 0, 0)
-                except Exception:
-                    pass
-            raise err
+        except Exception as e:
+            logger.error(f"Pipeline failed for job {job_id}: {e}", exc_info=True)
+            update_job(job_id, status="FAILED", status_text=str(e))
+            raise

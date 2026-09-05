@@ -35,7 +35,7 @@ export const ReaderContent: FC<ReaderContentProps> = ({
     page.footnotes.forEach(fn => footnoteMap.set(fn.id, fn));
 
     const parts: ReactNode[] = [];
-    const regex = /([¹²³⁴⁵⁶⁷⁸⁹]+|\^\[\d+\]|(?<=\S)\[\d+\])/g;
+    const regex = /(?:\[(\d+)\]|\^\[(\d+)\]|([¹²³⁴⁵⁶⁷⁸⁹⁰]+))/g;
     let lastIndex = 0;
     let match: RegExpExecArray | null;
 
@@ -61,29 +61,30 @@ export const ReaderContent: FC<ReaderContentProps> = ({
       }
 
       const fnData = footnoteMap.get(fnId);
-
-      parts.push(
-        <button
-          key={`fn-${match.index}`}
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (fnData) {
+      if (fnData) {
+        parts.push(
+          <button
+            key={`fn-${match.index}`}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
               onSelectFootnote(fnData);
-            }
-          }}
-          title={fnData ? (isRu ? fnData.textRu : fnData.textEn) : `Сноска ${fnId}`}
-          className="mx-0.5 inline-flex items-center justify-center rounded px-1 py-0 text-[0.7em] font-bold transition-all hover:scale-110 active:scale-95 cursor-pointer"
-          style={{
-            color: 'var(--accent)',
-            backgroundColor: 'var(--accent-soft)',
-            verticalAlign: 'super',
-            lineHeight: 1,
-          }}
-        >
-          {fnId}
-        </button>
-      );
+            }}
+            title={isRu ? fnData.textRu : fnData.textEn}
+            className="mx-0.5 inline-flex items-center justify-center rounded px-1 py-0 text-[0.7em] font-bold transition-all hover:scale-110 active:scale-95 cursor-pointer"
+            style={{
+              color: 'var(--accent)',
+              backgroundColor: 'var(--accent-soft)',
+              verticalAlign: 'super',
+              lineHeight: 1,
+            }}
+          >
+            {fnId}
+          </button>
+        );
+      } else {
+        parts.push(raw);
+      }
 
       lastIndex = regex.lastIndex;
     }
@@ -146,9 +147,19 @@ export const ReaderContent: FC<ReaderContentProps> = ({
               );
             }
 
-            // Drop cap only at the beginning of chapters (e.g. page 867, 870, 874, 879) on the very first paragraph
-            const isChapterStartPage = [867, 870, 874, 879].includes(page.pageNumber);
-            const useDropCap = settings.showDropCap && isChapterStartPage && idx === 0;
+            // Drop cap only on the genuine first body paragraph of a chapter/section start
+            const prevPara = idx > 0 ? page.paragraphs[idx - 1] : null;
+            const isAfterHeading = prevPara ? (prevPara.ru.length < 60 && !prevPara.ru.includes('.') && !prevPara.ru.includes(';')) : false;
+            const isChapterStart = Boolean(
+              (page.chapterTitle && idx === 0) ||
+              isAfterHeading ||
+              page.pageNumber === 1 ||
+              page.pageNumber === 10 ||
+              page.pageNumber === 867
+            );
+            const cleanText = (para.ru || '').trim();
+            const startsWithUppercase = /^[A-ZА-ЯЁӘҒҚҢӨҰҮҺІ]/.test(cleanText);
+            const useDropCap = settings.showDropCap && isChapterStart && startsWithUppercase && cleanText.length > 80;
             const paraCards = getCardsForParagraph(para.id);
 
             return (
@@ -387,8 +398,18 @@ export const ReaderContent: FC<ReaderContentProps> = ({
               );
             }
 
-            const isChapterStartPage = [867, 870, 874, 879].includes(page.pageNumber);
-            const useDropCap = settings.showDropCap && isChapterStartPage && idx === 0;
+            const prevPara = idx > 0 ? page.paragraphs[idx - 1] : null;
+            const isAfterHeading = prevPara ? (prevPara.en.length < 60 && !prevPara.en.includes('.') && !prevPara.en.includes(';')) : false;
+            const isChapterStart = Boolean(
+              (page.chapterTitle && idx === 0) ||
+              isAfterHeading ||
+              page.pageNumber === 1 ||
+              page.pageNumber === 10 ||
+              page.pageNumber === 867
+            );
+            const cleanText = (para.en || '').trim();
+            const startsWithUppercase = /^[A-ZА-ЯЁӘҒҚҢӨҰҮҺІ]/.test(cleanText);
+            const useDropCap = settings.showDropCap && isChapterStart && startsWithUppercase && cleanText.length > 80;
             const paraCards = getCardsForParagraph(para.id);
 
             return (

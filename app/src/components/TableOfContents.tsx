@@ -40,9 +40,22 @@ export const TableOfContents: FC<TableOfContentsProps> = ({
 
   if (!isOpen) return null;
 
-  const filteredItems = toc.filter(item =>
+  const validToc = (toc || [])
+    .filter(item => item && typeof item === 'object' && item.pageNumber > 0)
+    .map(item => {
+      const titleRu = item.titleRu || (item as any).title || item.titleEn || 'Раздел';
+      const cleanTitleRu = titleRu.replace(/\.pdf$/i, '').replace(/^_+/, '').trim();
+      const titleEn = item.titleEn && item.titleEn !== titleRu ? item.titleEn.replace(/\.pdf$/i, '').trim() : '';
+      return {
+        ...item,
+        titleRu: cleanTitleRu,
+        titleEn,
+      };
+    });
+
+  const filteredItems = validToc.filter(item =>
     item.titleRu.toLowerCase().includes(filter.toLowerCase()) ||
-    item.titleEn.toLowerCase().includes(filter.toLowerCase()) ||
+    (item.titleEn && item.titleEn.toLowerCase().includes(filter.toLowerCase())) ||
     item.pageNumber.toString().includes(filter)
   );
 
@@ -136,13 +149,13 @@ export const TableOfContents: FC<TableOfContentsProps> = ({
 
         {/* Chapters list */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-1">
-          {filteredItems.map((item) => {
+          {filteredItems.map((item, idx) => {
             const isExact = currentPage === item.pageNumber;
             const isBookmarked = bookmarks.includes(item.pageNumber);
 
             return (
               <button
-                key={`${item.pageNumber}-${item.titleEn}`}
+                key={`toc-${item.pageNumber}-${idx}`}
                 type="button"
                 onClick={() => {
                   onSelectPage(item.pageNumber);
@@ -169,21 +182,23 @@ export const TableOfContents: FC<TableOfContentsProps> = ({
                       <Bookmark className="h-3 w-3 fill-current text-amber-500" />
                     )}
                   </div>
-                  <div className="text-[11px] opacity-60 font-serif italic" style={{ color: 'var(--text-secondary)' }}>
-                    {item.titleEn}
-                  </div>
+                  {item.titleEn && (
+                    <div className="text-[11px] opacity-60 font-serif italic mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                      {item.titleEn}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center space-x-1.5 shrink-0">
                   <span
-                    className="rounded-md px-1.5 py-0.5 text-[11px] font-mono"
+                    className="rounded-md px-2 py-0.5 text-[11px] font-mono font-semibold"
                     style={{
-                      backgroundColor: 'var(--bg-card)',
-                      color: isExact ? 'var(--accent)' : 'var(--text-secondary)',
+                      backgroundColor: isExact ? 'var(--accent)' : 'var(--bg-card)',
+                      color: isExact ? '#ffffff' : 'var(--text-secondary)',
                       border: '1px solid var(--border-subtle)',
                     }}
                   >
-                    {item.pageNumber}
+                    стр. {item.pageNumber}
                   </span>
                   <ChevronRight className="h-3.5 w-3.5 opacity-40 group-hover:opacity-100 transition-opacity" />
                 </div>
