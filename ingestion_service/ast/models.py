@@ -44,6 +44,7 @@ class FigureBlock(BaseModel):
     image_ref: str
     caption: Optional[List[InlineRun]] = None
     alt: Optional[str] = None
+    source: Optional[SourceAnchor] = None
 
 
 class FootnoteBlock(BaseModel):
@@ -69,3 +70,4 @@ class DocumentPage(BaseModel):
     footnotes: List[FootnoteBlock] = Field(default_factory=list)
     layout_detected: str = "single_column"
     review_status: str = "verified"
+    normalization_provenance: List[dict[str, Any]] = Field(default_factory=list)

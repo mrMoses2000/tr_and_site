@@ -19,7 +19,9 @@ class RouterSignals(BaseModel):
     valid_cyrillic_rate: float = 0.0
     replacement_char_rate: float = 0.0
     image_coverage: float = 0.0
-    has_to_unicode: bool = True
+    # This is an observed property of the page's font resources.  It must not
+    # default to True merely because a text layer exists.
+    has_to_unicode: bool = False
     font_count: int = 0
     is_duplicate_render: bool = False
     is_spread: bool = False
@@ -30,6 +32,17 @@ class RawCandidate(BaseModel):
     text: str
     candidate_hash: str
     confidence: float = 1.0
+
+
+class ImageEvidence(BaseModel):
+    """A reference to an image resource preserved from a PDF page."""
+
+    index: int
+    xref: Optional[int] = None
+    bbox: list[float] = Field(default_factory=list)
+    width: Optional[int] = None
+    height: Optional[int] = None
+    image_hash: Optional[str] = None
 
 
 class PageEvidenceRecord(BaseModel):
@@ -43,6 +56,7 @@ class PageEvidenceRecord(BaseModel):
     classification: PageClassification
     router_signals: RouterSignals
     candidates: list[RawCandidate] = Field(default_factory=list)
+    image_evidence: list[ImageEvidence] = Field(default_factory=list)
     findings: list[str] = Field(default_factory=list)
 
 

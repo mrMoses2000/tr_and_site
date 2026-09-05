@@ -4,27 +4,18 @@ from .models import DocumentPage
 
 
 class FidelityValidator:
+    @staticmethod
+    def _digit_sequences(text: str) -> List[str]:
+        return re.findall(r"\d+", text)
+
     def verify_digit_sequences(self, raw_text: str, processed_text: str) -> bool:
         """
         Verifies that all digit sequences present in the raw text
         are preserved in the processed/AST text in matching counts.
         """
-        raw_digits = re.findall(r'\d+', raw_text)
-        processed_digits = re.findall(r'\d+', processed_text)
-
-        if not raw_digits:
-            return True
-
-        # Check that all raw digit tokens appear in processed digits in identical multiset
-        from collections import Counter
-        raw_counter = Counter(raw_digits)
-        processed_counter = Counter(processed_digits)
-
-        for digit, count in raw_counter.items():
-            if processed_counter[digit] < count:
-                return False
-
-        return True
+        # Exact sequence equality prevents both dropped digits and injected
+        # numbers, while also catching reordered citations/page references.
+        return self._digit_sequences(raw_text) == self._digit_sequences(processed_text)
 
     def validate_page_fidelity(
         self,
@@ -45,6 +36,8 @@ class FidelityValidator:
                 for run in block.runs:
                     block_texts.append(run.text)
         for fn in document_page.footnotes:
+            if fn.label:
+                block_texts.append(fn.label)
             for b in fn.blocks:
                 if hasattr(b, "runs"):
                     for r in b.runs:
@@ -60,7 +53,7 @@ class FidelityValidator:
             if not fn.label:
                 fn_agreement = False
 
-        passed = digits_valid and fn_agreement and document_page.review_status != "needs_review"
+        passed = digits_valid and fn_agreement and document_page.review_status == "verified"
 
         return {
             "passed": passed,

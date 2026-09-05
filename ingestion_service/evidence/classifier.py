@@ -3,6 +3,7 @@ from typing import Optional
 import fitz
 
 from .models import (
+    ImageEvidence,
     PageClassification,
     PageEvidenceRecord,
     RawCandidate,
@@ -11,6 +12,20 @@ from .models import (
 
 
 class PageClassifier:
+    @staticmethod
+    def _font_has_to_unicode(doc: fitz.Document, font_info: tuple) -> bool:
+        """Return the observed ToUnicode presence for one embedded font."""
+        if not font_info:
+            return False
+        try:
+            xref = int(font_info[0])
+            if xref <= 0:
+                return False
+            kind, value = doc.xref_get_key(xref, "ToUnicode")
+            return kind not in {"null", ""} and bool(value)
+        except (AttributeError, IndexError, TypeError, ValueError, RuntimeError):
+            return False
+
     def classify_page(
         self,
         doc: fitz.Document,
@@ -42,25 +57,75 @@ class PageClassifier:
         cyrillic_chars = sum(1 for c in raw_text if "\u0400" <= c <= "\u04ff")
         valid_cyrillic_rate = cyrillic_chars / max(char_count, 1)
 
-        images = page.get_images()
-        image_coverage = 0.0
-        if images:
-            # Approximate image coverage
-            total_img_area = sum(
-                float(img[2] * img[3]) for img in images if len(img) >= 4
+        images = page.get_images(full=True)
+        image_infos = []
+        try:
+            image_infos = page.get_image_info(xrefs=True)
+        except (AttributeError, RuntimeError):
+            # Older PyMuPDF versions do not expose image info.  The image
+            # resource list is still retained below, with an empty bbox.
+            image_infos = []
+
+        image_evidence: list[ImageEvidence] = []
+        for image_index, image_info in enumerate(image_infos):
+            digest = image_info.get("digest")
+            if isinstance(digest, bytes):
+                digest = digest.hex()
+            image_evidence.append(
+                ImageEvidence(
+                    index=image_index,
+                    xref=image_info.get("xref"),
+                    bbox=[float(v) for v in image_info.get("bbox", ())],
+                    width=image_info.get("width"),
+                    height=image_info.get("height"),
+                    image_hash=str(digest) if digest else None,
+                )
             )
+
+        # If get_image_info is unavailable, retain at least each resource's
+        # xref and dimensions instead of silently treating an image page as
+        # text-only evidence.
+        if not image_evidence:
+            for image_index, image_info in enumerate(images):
+                image_evidence.append(
+                    ImageEvidence(
+                        index=image_index,
+                        xref=int(image_info[0]) if image_info and image_info[0] else None,
+                        width=int(image_info[2]) if len(image_info) > 2 else None,
+                        height=int(image_info[3]) if len(image_info) > 3 else None,
+                    )
+                )
+
+        image_coverage = 0.0
+        if image_evidence:
+            # Image info bboxes use page points, so their area is comparable
+            # to page.rect.  Clamp each bbox to the page before calculating a
+            # conservative coverage estimate.
+            total_img_area = 0.0
+            for image in image_evidence:
+                if len(image.bbox) != 4:
+                    continue
+                x0, y0, x1, y1 = image.bbox
+                clipped_x0 = max(0.0, min(width_pt, x0))
+                clipped_y0 = max(0.0, min(height_pt, y0))
+                clipped_x1 = max(0.0, min(width_pt, x1))
+                clipped_y1 = max(0.0, min(height_pt, y1))
+                total_img_area += max(0.0, clipped_x1 - clipped_x0) * max(
+                    0.0, clipped_y1 - clipped_y0
+                )
             page_area = max(width_pt * height_pt, 1.0)
             image_coverage = min(total_img_area / page_area, 1.0)
 
-        fonts = page.get_fonts()
+        fonts = page.get_fonts(full=True)
         font_count = len(fonts)
+        has_to_unicode = any(self._font_has_to_unicode(doc, font) for font in fonts)
 
         signals = RouterSignals(
             char_count=char_count,
             valid_cyrillic_rate=valid_cyrillic_rate,
             replacement_char_rate=replacement_char_rate,
             image_coverage=image_coverage,
-            has_to_unicode=True,
+            has_to_unicode=has_to_unicode,
             font_count=font_count,
             is_duplicate_render=is_duplicate_render,
             is_spread=is_spread,
@@ -86,14 +151,16 @@ class PageClassifier:
                 findings.append("metadata_author_title_conflict")
 
         cand_hash = f"cand-p{page_index}-{hashlib.sha256(raw_text.encode('utf-8')).hexdigest()[:8]}"
-        candidates = [
-            RawCandidate(
-                method="native",
-                text=raw_text,
-                candidate_hash=cand_hash,
-                confidence=1.0 - replacement_char_rate,
+        candidates = []
+        if raw_text:
+            candidates.append(
+                RawCandidate(
+                    method="native",
+                    text=raw_text,
+                    candidate_hash=cand_hash,
+                    confidence=1.0 - replacement_char_rate,
+                )
             )
-        ]
 
         # Route classification
         if is_duplicate_render:
@@ -119,5 +186,6 @@ class PageClassifier:
             classification=classification,
             router_signals=signals,
             candidates=candidates,
+            image_evidence=image_evidence,
             findings=findings,
         )
