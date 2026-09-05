@@ -12,56 +12,82 @@ class ReversibleNormalization(BaseModel):
 def normalize_text(raw_text: str) -> ReversibleNormalization:
     """
     Performs deterministic, reversible normalization on extracted text.
-    Handles soft-hyphen markers (#\n, \x1e\n, -\n) without corrupting
+    Handles soft-hyphen markers (#\n, \x1e\n, -\n, inline \x1e and #) without corrupting
     compound words, bible citations, or verse ranges.
     """
     operations: List[Dict[str, Any]] = []
 
-    # Match word hyphenation across lines: word + (#|\x1e|-)\n + word
-    pattern = re.compile(r'([а-яА-ЯёЁa-zA-Z]+)(#|\x1e|-\n|\n-)\n*([а-яА-ЯёЁa-zA-Z]+)')
+    current = raw_text
 
-    # We iterate and build normalized text with exact offset tracking
-    normalized_parts: List[str] = []
-    last_idx = 0
-    norm_offset = 0
+    # Sequence of normalization passes
+    patterns = [
+        # 1. Range separators: 2.6\x1e11, 2\x1e5, 7\x1e8, 10\x1e11, 69#70 -> en-dash '–'
+        (
+            re.compile(r"(\d+(?:\.\d+)?)(?:\x1e|#)(\d+)"),
+            "range_separator_normalization",
+            lambda m: (f"{m.group(1)}–{m.group(2)}", m.group(0)[len(m.group(1)):-len(m.group(2))]),
+        ),
+        # 2. Ordinal number suffixes: 60\x1eе, 3\x1eя, 1\x1eй -> hyphen '-'
+        (
+            re.compile(r"(\d+)(?:\x1e|#)([а-яА-ЯёЁ]+)"),
+            "ordinal_suffix_hyphen",
+            lambda m: (f"{m.group(1)}-{m.group(2)}", m.group(0)[len(m.group(1)):-len(m.group(2))]),
+        ),
+        # 3. Soft hyphen followed by space in chapter 13: за# являющие -> single word
+        (
+            re.compile(r"([а-яА-ЯёЁa-zA-Z]+)#[ \t]+([а-яА-ЯёЁa-zA-Z]+)"),
+            "soft_hyphen_dehyphenation",
+            lambda m: (f"{m.group(1)}{m.group(2)}", m.group(0)[len(m.group(1)):-len(m.group(2))]),
+        ),
+        # 4. Line-end dehyphenation across line breaks
+        (
+            re.compile(r"([а-яА-ЯёЁa-zA-Z]+)(#\n|\x1e\n|-\n)([а-яА-ЯёЁa-zA-Z]+)"),
+            "line_end_dehyphenation",
+            lambda m: (
+                f"{m.group(1)}-{m.group(3)}"
+                if m.group(1).lower() in {"во", "по", "кое", "две", "три"}
+                and m.group(3).lower() in {"первых", "вторых", "третьих", "три", "то"}
+                else f"{m.group(1)}{m.group(3)}",
+                m.group(2),
+            ),
+        ),
+        # 5. Inline control-char compound words: Во\x1eвторых, две\x1eтри -> hyphen '-'
+        (
+            re.compile(r"([а-яА-ЯёЁa-zA-Z]+)\x1e([а-яА-ЯёЁa-zA-Z]+)"),
+            "control_char_hyphen",
+            lambda m: (f"{m.group(1)}-{m.group(2)}", "\x1e"),
+        ),
+    ]
 
-    for match in re.finditer(r'([а-яА-ЯёЁa-zA-Z]+)(#\n|\x1e\n|-\n)([а-яА-ЯёЁa-zA-Z]+)', raw_text):
-        start, end = match.span()
-        # Add preceding unchanged text
-        prefix = raw_text[last_idx:start]
-        normalized_parts.append(prefix)
-        norm_offset += len(prefix)
+    for pat, kind, rep_fn in patterns:
+        new_parts = []
+        last_idx = 0
+        norm_offset = 0
+        for match in pat.finditer(current):
+            start, end = match.span()
+            prefix = current[last_idx:start]
+            new_parts.append(prefix)
+            norm_offset += len(prefix)
 
-        part1 = match.group(1)
-        sep = match.group(2)
-        part2 = match.group(3)
+            replacement, sep = rep_fn(match)
+            norm_start = norm_offset
+            norm_end = norm_start + len(replacement)
 
-        # Reconstructed dehyphenated word
-        combined_word = part1 + part2
-        norm_start = norm_offset
-        norm_end = norm_start + len(combined_word)
-
-        operations.append({
-            "kind": "line_end_dehyphenation",
-            "raw_range": [start, end],
-            "normalized_range": [norm_start, norm_end],
-            "original_separator": sep,
-            "reason": "visual_line_continuation+lexicon",
-            "confidence": 0.98,
-        })
-
-        normalized_parts.append(combined_word)
-        norm_offset += len(combined_word)
-        last_idx = end
-
-    # Append remaining text
-    suffix = raw_text[last_idx:]
-    normalized_parts.append(suffix)
-
-    normalized_text = "".join(normalized_parts)
+            operations.append({
+                "kind": kind,
+                "raw_range": [start, end],
+                "normalized_range": [norm_start, norm_end],
+                "original_separator": sep,
+                "confidence": 0.99,
+            })
+            new_parts.append(replacement)
+            norm_offset += len(replacement)
+            last_idx = end
+        new_parts.append(current[last_idx:])
+        current = "".join(new_parts)
 
     return ReversibleNormalization(
         raw_text=raw_text,
-        normalized_text=normalized_text,
+        normalized_text=current,
         operations=operations,
     )

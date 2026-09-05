@@ -60,9 +60,35 @@ class DocumentAstBuilder:
                 )
             run.text = normalized.normalized_text
 
-        separator_pattern = re.compile(r"(?P<separator>#\n|\x1e\n|-\n)$")
+        for idx in range(1, len(runs) - 1):
+            curr = runs[idx]
+            if curr.text in ("\x1e", "#", "\x1e\n", "#\n"):
+                prev = runs[idx - 1]
+                nxt = runs[idx + 1]
+                if re.search(r"[а-яА-ЯёЁa-zA-Z]+$", prev.text) and re.match(r"[а-яА-ЯёЁa-zA-Z]+", nxt.text):
+                    sep = curr.text
+                    curr.text = ""
+                    normalization_provenance.append({
+                        "block_id": block_id,
+                        "run_id": curr.id,
+                        "run_ids": [prev.id, curr.id, nxt.id],
+                        "raw_text": prev.text + sep + nxt.text,
+                        "normalized_text": prev.text + nxt.text,
+                        "operations": [{
+                            "kind": "line_end_dehyphenation",
+                            "raw_range": [len(prev.text), len(prev.text) + len(sep)],
+                            "normalized_range": [len(prev.text), len(prev.text)],
+                            "original_separator": sep,
+                            "reason": "isolated_separator_span",
+                            "confidence": 0.99,
+                        }],
+                    })
+
+        separator_pattern = re.compile(r"(?P<separator>#\n?|\x1e\n?|-\n)$")
         word_pattern = re.compile(r"[а-яА-ЯёЁa-zA-Z]+")
         for previous, following in zip(runs, runs[1:]):
+            if not previous.text or not following.text:
+                continue
             previous_raw = previous.text
             following_raw = following.text
             separator_match = separator_pattern.search(previous_raw)
@@ -98,6 +124,88 @@ class DocumentAstBuilder:
                     ],
                 }
             )
+
+    @staticmethod
+    def _should_merge_blocks(prev_b: Dict[str, Any], curr_b: Dict[str, Any]) -> bool:
+        if prev_b.get("_kind") == "image" or curr_b.get("_kind") == "image":
+            return False
+        if prev_b.get("type", 0) != 0 or curr_b.get("type", 0) != 0:
+            return False
+
+        prev_lines = prev_b.get("lines", [])
+        curr_lines = curr_b.get("lines", [])
+        if not prev_lines or not curr_lines:
+            return False
+
+        prev_spans = [
+            s.get("text", "")
+            for l in prev_lines
+            for s in l.get("spans", [])
+            if s.get("text", "")
+        ]
+        curr_spans = [
+            s.get("text", "")
+            for l in curr_lines
+            for s in l.get("spans", [])
+            if s.get("text", "")
+        ]
+        if not prev_spans or not curr_spans:
+            return False
+
+        prev_end_text = prev_spans[-1].strip()
+        curr_start_text = curr_spans[0].strip()
+        if not prev_end_text or not curr_start_text:
+            return False
+
+        prev_max_size = max(
+            (float(s.get("size", 10.0)) for l in prev_lines for s in l.get("spans", [])),
+            default=10.0,
+        )
+        curr_max_size = max(
+            (float(s.get("size", 10.0)) for l in curr_lines for s in l.get("spans", [])),
+            default=10.0,
+        )
+        if prev_max_size >= 14.0 or curr_max_size >= 14.0:
+            return False
+
+        prev_bbox = prev_b.get("bbox", [0, 0, 0, 0])
+        curr_bbox = curr_b.get("bbox", [0, 0, 0, 0])
+        gap = curr_bbox[1] - prev_bbox[3]
+
+        if abs(prev_bbox[0] - curr_bbox[0]) > 30:
+            return False
+
+        ends_with_hyphen = bool(re.search(r"(\x1e|#|-)$", prev_end_text))
+        if ends_with_hyphen and gap <= 12.0:
+            return True
+
+        starts_lowercase = bool(re.match(r"^[а-яёa-z]", curr_start_text))
+        ends_sentence = bool(re.search(r"[\.!\?…:]$", prev_end_text))
+        if starts_lowercase and not ends_sentence and gap <= 6.0:
+            return True
+
+        return False
+
+    @classmethod
+    def _merge_adjacent_blocks(cls, blocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not blocks:
+            return []
+        merged: List[Dict[str, Any]] = [blocks[0]]
+        for b in blocks[1:]:
+            prev = merged[-1]
+            if cls._should_merge_blocks(prev, b):
+                prev["lines"].extend(b.get("lines", []))
+                p_bbox = prev.get("bbox", [0, 0, 0, 0])
+                c_bbox = b.get("bbox", [0, 0, 0, 0])
+                prev["bbox"] = [
+                    min(p_bbox[0], c_bbox[0]),
+                    min(p_bbox[1], c_bbox[1]),
+                    max(p_bbox[2], c_bbox[2]),
+                    max(p_bbox[3], c_bbox[3]),
+                ]
+            else:
+                merged.append(b)
+        return merged
 
     def build_page(
         self,
@@ -262,8 +370,8 @@ class DocumentAstBuilder:
                     body_blocks = col1 + col2
             elif any("Схематическое" in b.get("lines", [{}])[0].get("spans", [{}])[0].get("text", "") for b in body_blocks):
                 layout_detected = "schematic"
-
         # 4. Convert body blocks into AST HeadingBlock or ParagraphBlock
+        body_blocks = self._merge_adjacent_blocks(body_blocks)
         ast_blocks: List[Any] = []
         for idx, b in enumerate(body_blocks):
             blk_id = f"blk-{self.slug}-p{page_index}-{idx}"

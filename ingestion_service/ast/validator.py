@@ -17,6 +17,38 @@ class FidelityValidator:
         # numbers, while also catching reordered citations/page references.
         return self._digit_sequences(raw_text) == self._digit_sequences(processed_text)
 
+    def validate_multiset_digits(self, raw_text: str, normalized_text: str) -> Dict[str, Any]:
+        """
+        Validates that multiset of digit sequences in raw_text matches normalized_text.
+        """
+        from collections import Counter
+        raw_digits = self._digit_sequences(raw_text)
+        norm_digits = self._digit_sequences(normalized_text)
+        raw_counter = Counter(raw_digits)
+        norm_counter = Counter(norm_digits)
+        passed = raw_counter == norm_counter
+        return {
+            "status": "PASS" if passed else "FAIL",
+            "raw_count": sum(raw_counter.values()),
+            "normalized_count": sum(norm_counter.values()),
+            "diff": {
+                "missing": list((raw_counter - norm_counter).elements()),
+                "extra": list((norm_counter - raw_counter).elements()),
+            },
+        }
+
+    def validate_figures_presence(self, drawings_count: int, figure_blocks_count: int) -> Dict[str, Any]:
+        """
+        Validates that when vector drawings or diagrams are present on a page,
+        at least one FigureBlock exists.
+        """
+        passed = not (drawings_count >= 5 and figure_blocks_count == 0)
+        return {
+            "status": "PASS" if passed else "FAIL",
+            "drawings_count": drawings_count,
+            "figure_blocks_count": figure_blocks_count,
+        }
+
     def validate_page_fidelity(
         self,
         raw_text: str,

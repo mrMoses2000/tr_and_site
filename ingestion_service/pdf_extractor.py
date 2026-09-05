@@ -5,6 +5,8 @@ import fitz  # PyMuPDF
 from PIL import Image
 
 from .lang_detector import detect_language
+from .ast.normalization import normalize_text
+
 
 CYRILLIC_TO_LATIN = {
     'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo', 'ж': 'zh',
@@ -276,7 +278,7 @@ class PDFExtractor:
                 if fn_match:
                     fn_id = int(fn_match.group(1) or fn_match.group(2))
                     fn_text = (fn_match.group(3) if fn_match.group(2) else raw_text[len(f"[{fn_id}]"): ]).strip()
-                    fn_clean = re.sub(r'(\w+)\x1e\s*(\n\s*)?(\w+)', r'\1\3', fn_text)
+                    fn_clean = normalize_text(fn_text).normalized_text
                     fn_clean = re.sub(r'\n(?!\n)', ' ', fn_clean).strip()
                     footnotes.append({
                         "id": fn_id,
@@ -285,8 +287,8 @@ class PDFExtractor:
                     })
                     continue
 
-            # 4. Clean body text: soft hyphens, excessive spaces
-            cleaned = re.sub(r'(\w+)\x1e\s*(\n\s*)?(\w+)', r'\1\3', raw_text)
+            # 4. Clean body text: soft hyphens, excessive spaces with reversible normalization
+            cleaned = normalize_text(raw_text).normalized_text
             cleaned = re.sub(r'\n(?!\n)', ' ', cleaned).strip()
 
             # 5. Check if block is a short heading
