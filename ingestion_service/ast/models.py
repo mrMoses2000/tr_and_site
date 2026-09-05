@@ -39,12 +39,14 @@ class TableBlock(BaseModel):
 
 
 class FigureBlock(BaseModel):
+    model_config = {"populate_by_name": True}
     type: Literal["figure"] = "figure"
     id: str
-    image_ref: str
+    image_ref: str = Field(..., alias="imageRef")
     caption: Optional[List[InlineRun]] = None
     alt: Optional[str] = None
     source: Optional[SourceAnchor] = None
+    runs: List[InlineRun] = Field(default_factory=list)
 
 
 class FootnoteBlock(BaseModel):

@@ -127,7 +127,7 @@ class DocumentAstBuilder:
 
     @staticmethod
     def _should_merge_blocks(prev_b: Dict[str, Any], curr_b: Dict[str, Any]) -> bool:
-        if prev_b.get("_kind") == "image" or curr_b.get("_kind") == "image":
+        if prev_b.get("_kind") in ("image", "figure") or curr_b.get("_kind") in ("image", "figure"):
             return False
         if prev_b.get("type", 0) != 0 or curr_b.get("type", 0) != 0:
             return False
@@ -206,6 +206,175 @@ class DocumentAstBuilder:
             else:
                 merged.append(b)
         return merged
+
+    @classmethod
+    def _extract_vector_diagrams(
+        cls,
+        body_blocks: List[Dict[str, Any]],
+        page_index: int,
+        source_hash: str,
+        header_cutoff: float,
+        slug: str,
+        normalization_provenance: List[Dict[str, Any]],
+        normalize_runs_fn: Any,
+    ) -> List[Dict[str, Any]]:
+        caption_pat = re.compile(r"^(?:Рис\.|Рисунок)\s*(\d+(?:[\.\–\-]\d+)?)", re.IGNORECASE)
+        captions: List[tuple[Dict[str, Any], str]] = []
+        for b in body_blocks:
+            if b.get("_kind") in ("image", "figure"):
+                continue
+            txt = " ".join(
+                "".join(s.get("text", "") for s in l.get("spans", []))
+                for l in b.get("lines", [])
+            ).strip()
+            if caption_pat.match(txt) and len(txt) < 250:
+                captions.append((b, txt))
+
+        if not captions:
+            return body_blocks
+
+        captions.sort(key=lambda item: item[0].get("bbox", [0, 0, 0, 0])[1])
+
+        new_body_blocks: List[Dict[str, Any]] = []
+        handled_block_ids = set()
+
+        for c_idx, (cap_b, cap_txt) in enumerate(captions):
+            cap_bbox = cap_b.get("bbox", [0, 0, 0, 0])
+            if c_idx == 0:
+                prose_above = [
+                    b
+                    for b in body_blocks
+                    if b.get("_kind") not in ("image", "figure")
+                    and b.get("bbox", [0, 0, 0, 0])[3] < cap_bbox[1]
+                    and (b.get("bbox", [0, 0, 0, 0])[2] - b.get("bbox", [0, 0, 0, 0])[0]) >= 315
+                    and len(b.get("lines", [])) >= 2
+                ]
+                y_top = (
+                    max((b.get("bbox", [0, 0, 0, 0])[3] for b in prose_above), default=header_cutoff)
+                    + 1.0
+                )
+            else:
+                prev_cap_bbox = captions[c_idx - 1][0].get("bbox", [0, 0, 0, 0])
+                y_top = prev_cap_bbox[3] + 1.0
+
+            y_bottom = cap_bbox[3] + 4.0
+
+            diagram_blocks: List[Dict[str, Any]] = []
+            for b in body_blocks:
+                if b.get("_kind") in ("image", "figure"):
+                    continue
+                b_bbox = b.get("bbox", [0, 0, 0, 0])
+                mid_y = (b_bbox[1] + b_bbox[3]) / 2.0
+                if y_top <= mid_y <= y_bottom and id(b) not in handled_block_ids:
+                    diagram_blocks.append(b)
+                    handled_block_ids.add(id(b))
+
+            if not diagram_blocks:
+                diagram_blocks = [cap_b]
+                handled_block_ids.add(id(cap_b))
+
+            blk_id = f"blk-{slug}-p{page_index}-fig-{c_idx}"
+            caption_runs: List[InlineRun] = []
+            for l_idx, line in enumerate(cap_b.get("lines", [])):
+                for s_idx, span in enumerate(line.get("spans", [])):
+                    stext = span.get("text", "")
+                    if not stext:
+                        continue
+                    flags = span.get("flags", 0)
+                    marks: List[str] = []
+                    if flags & 2:
+                        marks.append("italic")
+                    if flags & 16 or "bold" in span.get("font", "").lower():
+                        marks.append("bold")
+                    cand_hash = f"cand-p{page_index}-{hashlib.sha256(stext.encode('utf-8')).hexdigest()[:8]}"
+                    run = InlineRun(
+                        id=f"{blk_id}-cap-r{l_idx}_{s_idx}",
+                        text=stext,
+                        language="ru",
+                        marks=marks if marks else None,
+                        source=SourceAnchor(
+                            sourceSha256=source_hash,
+                            pdfPageIndex=page_index,
+                            bbox=[float(v) for v in span.get("bbox", ())],
+                            extractionMethod="native",
+                            candidateHash=cand_hash,
+                        ),
+                    )
+                    caption_runs.append(run)
+
+            normalize_runs_fn(caption_runs, blk_id, normalization_provenance)
+
+            # Build all diagram runs (diagram annotations and caption)
+            all_diagram_runs: List[InlineRun] = []
+            for db_idx, db in enumerate(diagram_blocks):
+                for l_idx, line in enumerate(db.get("lines", [])):
+                    for s_idx, span in enumerate(line.get("spans", [])):
+                        stext = span.get("text", "")
+                        if not stext:
+                            continue
+                        flags = span.get("flags", 0)
+                        marks: List[str] = []
+                        if flags & 2:
+                            marks.append("italic")
+                        if flags & 16 or "bold" in span.get("font", "").lower():
+                            marks.append("bold")
+                        cand_hash = f"cand-p{page_index}-{hashlib.sha256(stext.encode('utf-8')).hexdigest()[:8]}"
+                        run = InlineRun(
+                            id=f"{blk_id}-r{db_idx}_{l_idx}_{s_idx}",
+                            text=stext,
+                            language="ru",
+                            marks=marks if marks else None,
+                            source=SourceAnchor(
+                                sourceSha256=source_hash,
+                                pdfPageIndex=page_index,
+                                bbox=[float(v) for v in span.get("bbox", ())],
+                                extractionMethod="native",
+                                candidateHash=cand_hash,
+                            ),
+                        )
+                        all_diagram_runs.append(run)
+
+            normalize_runs_fn(all_diagram_runs, blk_id, normalization_provenance)
+
+            alt_text = normalize_text(cap_txt).normalized_text
+            fig_x0 = min(float(b.get("bbox", [0, 0, 0, 0])[0]) for b in diagram_blocks)
+            fig_y0 = min(float(b.get("bbox", [0, 0, 0, 0])[1]) for b in diagram_blocks)
+            fig_x1 = max(float(b.get("bbox", [0, 0, 0, 0])[2]) for b in diagram_blocks)
+            fig_y1 = max(float(b.get("bbox", [0, 0, 0, 0])[3]) for b in diagram_blocks)
+
+            fig_cand_hash = (
+                f"cand-fig-p{page_index}-"
+                f"{hashlib.sha256(alt_text.encode('utf-8')).hexdigest()[:8]}"
+            )
+            figure_block = FigureBlock(
+                id=blk_id,
+                image_ref=f"pdf-page://{page_index}/figure/{c_idx}",
+                caption=caption_runs,
+                alt=alt_text,
+                source=SourceAnchor(
+                    sourceSha256=source_hash,
+                    pdfPageIndex=page_index,
+                    bbox=[fig_x0, fig_y0, fig_x1, fig_y1],
+                    extractionMethod="native",
+                    candidateHash=fig_cand_hash,
+                ),
+                runs=all_diagram_runs,
+            )
+
+            new_body_blocks.append(
+                {
+                    "_kind": "figure",
+                    "bbox": [fig_x0, fig_y0, fig_x1, fig_y1],
+                    "figure_block": figure_block,
+                }
+            )
+
+        for b in body_blocks:
+            if id(b) not in handled_block_ids:
+                new_body_blocks.append(b)
+
+        new_body_blocks.sort(key=lambda b: b.get("bbox", [0, 0, 0, 0])[1])
+        return new_body_blocks
 
     def build_page(
         self,
@@ -348,9 +517,20 @@ class DocumentAstBuilder:
             else:
                 body_blocks.append(b)
 
+        # Extract vector diagrams and bind captions before layout analysis
+        body_blocks = self._extract_vector_diagrams(
+            body_blocks=body_blocks,
+            page_index=page_index,
+            source_hash=source_hash,
+            header_cutoff=header_cutoff,
+            slug=self.slug,
+            normalization_provenance=normalization_provenance,
+            normalize_runs_fn=self._normalize_runs,
+        )
+
         # 3. Layout analysis: detect two-column layout
         layout_detected = "single_column"
-        text_body_blocks = [b for b in body_blocks if b.get("_kind") != "image"]
+        text_body_blocks = [b for b in body_blocks if b.get("_kind") not in ("image", "figure")]
         if len(text_body_blocks) >= 2:
             midpoint = page_width / 2.0
             col1 = [b for b in text_body_blocks if b.get("bbox", [0])[0] < midpoint and b.get("bbox", [0, 0, 0])[2] <= midpoint * 1.15]
@@ -359,22 +539,22 @@ class DocumentAstBuilder:
             # If both columns have multiple distinct blocks
             if len(col1) >= 2 and len(col2) >= 2 and (len(col1) + len(col2)) >= len(body_blocks) * 0.75:
                 layout_detected = "two_column"
-                image_blocks = [b for b in body_blocks if b.get("_kind") == "image"]
-                # Keep the original source order when figures are present;
-                # moving all figures to the end would silently change their
-                # relationship to surrounding text.  A future layout pass
-                # can place them by bbox without losing them in the interim.
-                if not image_blocks:
+                figure_or_image_blocks = [b for b in body_blocks if b.get("_kind") in ("image", "figure")]
+                if not figure_or_image_blocks:
                     col1.sort(key=lambda b: b.get("bbox", [0, 0])[1])
                     col2.sort(key=lambda b: b.get("bbox", [0, 0])[1])
                     body_blocks = col1 + col2
-            elif any("Схематическое" in b.get("lines", [{}])[0].get("spans", [{}])[0].get("text", "") for b in body_blocks):
+            elif any("Схематическое" in b.get("lines", [{}])[0].get("spans", [{}])[0].get("text", "") for b in body_blocks if b.get("_kind") not in ("image", "figure")):
                 layout_detected = "schematic"
         # 4. Convert body blocks into AST HeadingBlock or ParagraphBlock
         body_blocks = self._merge_adjacent_blocks(body_blocks)
         ast_blocks: List[Any] = []
         for idx, b in enumerate(body_blocks):
             blk_id = f"blk-{self.slug}-p{page_index}-{idx}"
+
+            if b.get("_kind") == "figure":
+                ast_blocks.append(b["figure_block"])
+                continue
 
             if b.get("_kind") == "image":
                 image_index = b.get("image_index", idx)
