@@ -13,12 +13,19 @@ class Job(BaseModel):
     file_name: str
     file_path: str
     book_slug: str
+    source_sha256: str = ""
     target_lang: str = "kk"  # 'kk' (Kazakh), 'ru' (Russian), 'original' (no translation)
     source_lang: str = "auto"
     total_pages: int = 0
     processed_pages: int = 0
     status: str = "QUEUED" # QUEUED, EXTRACTING, TRANSLATING, COMPILING, TESTING, DEPLOYED, FAILED
     status_text: str = "В очереди на обработку"
+    worker_id: Optional[str] = None
+    lease_expires_at: Optional[str] = None
+    attempt_count: int = 0
+    max_attempts: int = 3
+    current_step: Optional[str] = None
+    checkpoint_data: Optional[str] = None
     error_message: Optional[str] = None
     live_url: Optional[str] = None
     created_at: str = ""
@@ -34,6 +41,7 @@ def init_db():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY,
+                source_sha256 TEXT DEFAULT '',
                 telegram_user_id INTEGER,
                 telegram_chat_id INTEGER,
                 telegram_message_id INTEGER,
@@ -46,6 +54,12 @@ def init_db():
                 processed_pages INTEGER DEFAULT 0,
                 status TEXT DEFAULT 'QUEUED',
                 status_text TEXT DEFAULT 'В очереди на обработку',
+                worker_id TEXT,
+                lease_expires_at TEXT,
+                attempt_count INTEGER DEFAULT 0,
+                max_attempts INTEGER DEFAULT 3,
+                current_step TEXT,
+                checkpoint_data TEXT,
                 error_message TEXT,
                 live_url TEXT,
                 created_at TEXT,
@@ -53,14 +67,21 @@ def init_db():
             );
         """)
         # Safe migration for existing DB
-        try:
-            conn.execute("ALTER TABLE jobs ADD COLUMN target_lang TEXT DEFAULT 'kk';")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("ALTER TABLE jobs ADD COLUMN source_lang TEXT DEFAULT 'auto';")
-        except sqlite3.OperationalError:
-            pass
+        for col_name, col_def in [
+            ("target_lang", "TEXT DEFAULT 'kk'"),
+            ("source_lang", "TEXT DEFAULT 'auto'"),
+            ("source_sha256", "TEXT DEFAULT ''"),
+            ("worker_id", "TEXT"),
+            ("lease_expires_at", "TEXT"),
+            ("attempt_count", "INTEGER DEFAULT 0"),
+            ("max_attempts", "INTEGER DEFAULT 3"),
+            ("current_step", "TEXT"),
+            ("checkpoint_data", "TEXT"),
+        ]:
+            try:
+                conn.execute(f"ALTER TABLE jobs ADD COLUMN {col_name} {col_def};")
+            except sqlite3.OperationalError:
+                pass
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS books (
@@ -84,18 +105,19 @@ def create_job(
     file_path: str,
     book_slug: str,
     target_lang: str = "kk",
-    source_lang: str = "auto"
+    source_lang: str = "auto",
+    source_sha256: str = ""
 ) -> Job:
     now = datetime.now(timezone.utc).isoformat()
     with get_db_connection() as conn:
         conn.execute("""
             INSERT INTO jobs (
-                id, telegram_user_id, telegram_chat_id, telegram_message_id,
+                id, source_sha256, telegram_user_id, telegram_chat_id, telegram_message_id,
                 file_name, file_path, book_slug, target_lang, source_lang,
                 status, status_text, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', 'В очереди на обработку', ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', 'В очереди на обработку', ?, ?)
         """, (
-            job_id, telegram_user_id, telegram_chat_id, telegram_message_id,
+            job_id, source_sha256, telegram_user_id, telegram_chat_id, telegram_message_id,
             file_name, file_path, book_slug, target_lang, source_lang,
             now, now
         ))
@@ -103,6 +125,7 @@ def create_job(
     
     return Job(
         id=job_id,
+        source_sha256=source_sha256,
         telegram_user_id=telegram_user_id,
         telegram_chat_id=telegram_chat_id,
         telegram_message_id=telegram_message_id,
