@@ -218,6 +218,7 @@ class ProductionReleaseBuilder:
                 encoding="utf-8",
             )
             write_health_artifact(stage / "healthz.json", HealthSnapshot.now(identity.release_id))
+            self._normalize_stage_permissions(stage)
         except ReleaseBuildError:
             raise
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
@@ -359,3 +360,18 @@ class ProductionReleaseBuilder:
                 shutil.copy2(child, target)
             else:
                 raise ReleaseBuildError(f"Unsupported frontend dist entry: {child}")
+
+    @staticmethod
+    def _normalize_stage_permissions(stage: Path) -> None:
+        """Make the immutable candidate readable by the dedicated origin group."""
+        for directory, dirnames, filenames in os.walk(stage, followlinks=False):
+            directory_path = Path(directory)
+            if directory_path.is_symlink():
+                raise ReleaseBuildError(f"Symlink in staged release: {directory_path}")
+            os.chmod(directory_path, 0o750)
+            for name in [*dirnames, *filenames]:
+                candidate = directory_path / name
+                if candidate.is_symlink():
+                    raise ReleaseBuildError(f"Symlink in staged release: {candidate}")
+                if candidate.is_file():
+                    os.chmod(candidate, 0o640)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import stat
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -71,6 +72,8 @@ def test_builder_isolated_and_emits_operational_artifacts(tmp_path: Path) -> Non
     assert (stage / "books/safe-book/manifest.json").is_file()
     assert (stage / "scans/safe-book/page_1.webp").read_bytes() == b"scan"
     assert json.loads((stage / "manifest.json").read_text())['releaseId'] == identity.release_id
+    assert stat.S_IMODE((stage / "healthz.json").stat().st_mode) == 0o640
+    assert stat.S_IMODE((stage / "scans").stat().st_mode) == 0o750
 
 
 def test_staged_port_promotes_exact_builder_artifact(tmp_path: Path) -> None:

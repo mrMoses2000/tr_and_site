@@ -76,10 +76,10 @@ if (( ! ORIGIN_ONLY )); then
   getent passwd cloudflared >/dev/null || useradd --system --gid cloudflared --home-dir /nonexistent --shell /usr/sbin/nologin cloudflared
 fi
 
-install -d -o "$WRITER_USER" -g logos -m 0750 "$RELEASE_ROOT"
+install -d -o "$WRITER_USER" -g logos -m 2750 "$RELEASE_ROOT"
 for directory in releases staging backups; do
-  mode=0750
-  [[ "$directory" = staging || "$directory" = backups ]] && mode=0770
+  mode=2750
+  [[ "$directory" = staging || "$directory" = backups ]] && mode=2770
   install -d -o "$WRITER_USER" -g logos -m "$mode" "$RELEASE_ROOT/$directory"
 done
 install -d -o root -g root -m 0755 "$CONFIG_DIR"
