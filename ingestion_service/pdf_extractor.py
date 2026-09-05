@@ -63,6 +63,9 @@ class PDFExtractor:
                 continue
             if r.x1 < 25 or r.x0 > w - 25 or r.y1 < 30 or r.y0 > h - 30:
                 continue
+            # Exclude hairline divider lines (< 1.0 pt width or height)
+            if abs(r.y1 - r.y0) < 1.0 or abs(r.x1 - r.x0) < 1.0:
+                continue
             if abs(r.y1 - r.y0) < 1.5 and r.y0 > h * 0.7 and (r.x1 - r.x0) < 220:
                 continue
             content.append(d)
@@ -320,9 +323,33 @@ class PDFExtractor:
             drawing_count=len(content_drawings),
             figure_blocks=fig_blocks,
         )
-        raw_text = page.get_text("text") or ""
-        norm_combined = " ".join(p["ru"] for p in body_paragraphs)
-        val_digits = self.validator.validate_multiset_digits(raw_text, norm_combined)
+        raw_blocks = page.get_text("blocks")
+        content_raw_text_parts = []
+        for b in raw_blocks:
+            if len(b) >= 5 and b[6] == 0:
+                y0, y1 = b[1], b[3]
+                txt = b[4].strip()
+                if y1 < 50:
+                    continue
+                if y0 > page.rect.height - 40 and re.match(r"^\d{1,4}$", txt):
+                    continue
+                content_raw_text_parts.append(txt)
+        content_raw_text = " ".join(content_raw_text_parts)
+
+        ast_texts = []
+        for b in ast_page.blocks:
+            if hasattr(b, "runs"):
+                ast_texts.extend(r.text for r in b.runs)
+            elif isinstance(b, dict) and "runs" in b:
+                ast_texts.extend(r.get("text", "") for r in b["runs"])
+        for fn in ast_page.footnotes:
+            if fn.label:
+                ast_texts.append(fn.label)
+            for pb in fn.blocks:
+                if hasattr(pb, "runs"):
+                    ast_texts.extend(r.text for r in pb.runs)
+        norm_combined = " ".join(ast_texts)
+        val_digits = self.validator.validate_multiset_digits(content_raw_text, norm_combined)
 
         return {
             "pageNumber": page_num,
