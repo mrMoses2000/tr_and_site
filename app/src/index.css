@@ -1,0 +1,115 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Literata:ital,opsz,wght@0,7..72,400..700;1,7..72,400..700&family=Merriweather:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+:root {
+  --font-serif: 'Literata', 'Merriweather', Georgia, serif;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Default Sepia / Warm Paper Theme */
+  --bg-primary: #fbf0d9;
+  --bg-secondary: #f4e4c1;
+  --bg-card: #f7e8c8;
+  --text-primary: #382c1e;
+  --text-secondary: #6e583e;
+  --text-muted: #967d5e;
+  --border-subtle: #ebd6b0;
+  --border-strong: #d8be92;
+  --accent: #9c4221;
+  --accent-soft: rgba(156, 66, 33, 0.12);
+  --progress-bg: #e4cfa9;
+}
+
+[data-theme="light"] {
+  --bg-primary: #faf9f6;
+  --bg-secondary: #f1efea;
+  --bg-card: #ffffff;
+  --text-primary: #1c1c1c;
+  --text-secondary: #525252;
+  --text-muted: #828282;
+  --border-subtle: #e5e5e3;
+  --border-strong: #d1d1cf;
+  --accent: #1e40af;
+  --accent-soft: rgba(30, 64, 175, 0.1);
+  --progress-bg: #e5e5e5;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #18181b;
+  --bg-secondary: #27272a;
+  --bg-card: #202024;
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --border-subtle: #2e2e33;
+  --border-strong: #3f3f46;
+  --accent: #f59e0b;
+  --accent-soft: rgba(245, 158, 11, 0.15);
+  --progress-bg: #27272a;
+}
+
+[data-theme="oled"] {
+  --bg-primary: #000000;
+  --bg-secondary: #121212;
+  --bg-card: #0d0d0d;
+  --text-primary: #e4e4e7;
+  --text-secondary: #8b8b93;
+  --text-muted: #585860;
+  --border-subtle: #222222;
+  --border-strong: #333333;
+  --accent: #eab308;
+  --accent-soft: rgba(234, 179, 8, 0.15);
+  --progress-bg: #1c1c1e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-serif);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+              color 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.drop-cap::first-letter {
+  float: left;
+  font-size: 3.4em;
+  line-height: 0.8;
+  margin-top: 0.08em;
+  margin-right: 0.12em;
+  margin-bottom: -0.05em;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 9999px;
+}
+
+::selection {
+  background-color: var(--accent-soft);
+  color: var(--text-primary);
+}
