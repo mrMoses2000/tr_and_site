@@ -52,6 +52,7 @@ def test_caddy_template_keeps_assets_file_only_and_binds_loopback() -> None:
     template = (ROOT / "infra/caddy/Caddyfile.template").read_text(encoding="utf-8")
     assert "http://127.0.0.1:__ORIGIN_PORT__" in template
     assert "\tbind 127.0.0.1\n" in template
+    assert "\tpersist_config off\n" in template
     assert "@static_asset path_regexp" in template
     assert "[A-Za-z0-9_-]{8,64}" in template
     hashed_pattern = re.compile(
