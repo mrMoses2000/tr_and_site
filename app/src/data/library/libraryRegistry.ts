@@ -39,8 +39,11 @@ export const registeredBooks: Record<string, BookManifest> = {
 };
 
 // Lazy dynamic chunk loaders for full book manifests
-export const dynamicBookLoaders: Record<string, () => Promise<unknown>> = import.meta.glob<Record<string, unknown>>(
-  '../books/*/manifest.json'
+// Ask Vite for the JSON default directly. This keeps the loader contract stable
+// across dev, Vitest, and production chunking (where module namespace shape can vary).
+export const dynamicBookLoaders: Record<string, () => Promise<unknown>> = import.meta.glob(
+  '../books/*/manifest.json',
+  { import: 'default' },
 );
 
 const dynamicBookLoadersBySlug: Record<string, () => Promise<unknown>> = {};
@@ -136,7 +139,9 @@ export const loadBookManifest: BookManifestLoader = async (slug, signal) => {
       throw error;
     }
     assertNotAborted(slug, signal);
-    const manifest = (module as Record<string, unknown>).default || module;
+    const manifest = module && typeof module === 'object' && 'default' in module
+      ? (module as Record<string, unknown>).default
+      : module;
     if (!isBookManifest(manifest) || !hasConsistentManifestBounds(manifest, slug)) {
       throw new InvalidBookManifestError(slug);
     }

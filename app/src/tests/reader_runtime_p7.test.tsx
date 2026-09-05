@@ -10,7 +10,7 @@ import { useReader } from '../domain/useReader';
 const page: PageData = {
   pageNumber: 1,
   chapterTitle: 'Fixture chapter',
-  paragraphs: [{ id: 'p-1', ru: 'Текст fixture [7]', en: 'Fixture text [7]' }],
+  paragraphs: [{ id: 'p-1', ru: 'Текст fixture. [7]', en: 'Fixture text. [7]' }],
   footnotes: [{ id: 7, textRu: 'Сноска fixture', textEn: 'Fixture footnote' }],
   imageSrc: '/fixture.webp',
 };
@@ -55,14 +55,14 @@ describe('P7/P8 reader runtime contracts', () => {
       return fixture;
     });
     render(<App readerOptions={{ loadManifest: loader }} />);
-    await waitFor(() => expect(screen.getByText('Fixture chapter')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Fixture chapter', level: 1 })).toBeInTheDocument());
     expect(loader).toHaveBeenCalledWith('fixture-book', expect.any(AbortSignal));
   });
 
   it('opens scan view when the location transition requests scan', async () => {
     const loader = vi.fn(async () => fixture);
     render(<App readerOptions={{ loadManifest: loader }} />);
-    await waitFor(() => expect(screen.getByText('Fixture chapter')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Fixture chapter', level: 1 })).toBeInTheDocument());
     fireEvent.click(screen.getByTitle(/Фото оригинала страницы/i));
     expect(await screen.findByText(/Оригинальный скан • Стр\. 1/i)).toBeInTheDocument();
   });
@@ -140,7 +140,10 @@ describe('P7/P8 reader runtime contracts', () => {
     );
     fireEvent.change(screen.getByLabelText(/Поиск по тексту/i), { target: { value: 'fixture' } });
     await waitFor(() => expect(screen.getAllByText(/fixture/i, { selector: 'mark' }).length).toBeGreaterThan(0));
-    fireEvent.click(screen.getByRole('button', { name: /Стр\. 1/i }));
+    const paragraphMatch = screen.getAllByText(/fixture/i, { selector: 'mark' })[0];
+    const paragraphResult = paragraphMatch.closest('button');
+    expect(paragraphResult).not.toBeNull();
+    fireEvent.click(paragraphResult!);
     expect(onSelectLocation).toHaveBeenCalledWith(expect.objectContaining({
       pageNumber: 1,
       blockId: 'p-1',
