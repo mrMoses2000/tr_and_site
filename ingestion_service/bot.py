@@ -13,11 +13,16 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
 
+from typing import Optional, List
+
 from .config import (
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_ADMIN_ID,
     INBOX_DIR,
-    BASE_DIR
+    BASE_DIR,
+    validate_config,
+    Settings,
+    ConfigurationError
 )
 from .db import init_db, create_job, get_job, get_recent_jobs, update_job
 from .pipeline import IngestionPipeline
@@ -29,6 +34,34 @@ logging.basicConfig(
     format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s"
 )
 logger = logging.getLogger("telegram_bot")
+
+def is_user_authorized(user_id: Optional[int], allowlist: List[int]) -> bool:
+    """Strict deny-by-default check for Telegram user ID."""
+    if user_id is None:
+        return False
+    return int(user_id) in allowlist
+
+def sanitize_inbox_path(job_id: str, original_filename: str, base_inbox_dir: Path) -> Path:
+    """
+    Prevents path traversal and directory escape attacks across Linux and Windows paths.
+    Guarantees destination file resides directly in base_inbox_dir with no traversal components.
+    """
+    # Normalize path separators (handles both / and \)
+    normalized = original_filename.replace("\\", "/")
+    raw_name = [part for part in normalized.split("/") if part][-1] if "/" in normalized else original_filename
+    stem = Path(raw_name).stem
+    # Only allow alphanumeric, underscores and hyphens in stem (no dots, no slashes, no spaces)
+    clean_stem = re.sub(r'[^a-zA-Z0-9_-]', '_', stem)
+    clean_stem = re.sub(r'_+', '_', clean_stem).strip('_') or "document"
+    safe_filename = f"{job_id}_{clean_stem}.pdf"
+    resolved_inbox = base_inbox_dir.resolve()
+    safe_path = (resolved_inbox / safe_filename).resolve()
+    
+    if not safe_path.is_relative_to(resolved_inbox) or safe_path.parent != resolved_inbox:
+        raise ValueError(f"Security violation: path traversal detected for filename {original_filename}")
+    if ".." in safe_path.name:
+        raise ValueError(f"Security violation: dot-dot traversal detected in filename {original_filename}")
+    return safe_path
 
 def render_progress_bar(processed: int, total: int) -> str:
     if total <= 0:
@@ -249,10 +282,17 @@ async def handle_mode_selection(callback: CallbackQuery, bot: Bot):
 @dp.message(F.document)
 async def handle_document(message: types.Message, bot: Bot):
     doc = message.document
-    if not doc:
-        return
+    # Strict deny-by-default allowlist check BEFORE any download or DB action
+    try:
+        settings = validate_config()
+        admin_ids = settings.admin_user_ids
+    except Exception:
+        raw_ids = os.getenv("TELEGRAM_ADMIN_IDS") or os.getenv("TELEGRAM_ADMIN_ID", "")
+        admin_ids = [int(x.strip()) for x in raw_ids.split(",") if x.strip().isdigit()]
 
-    if TELEGRAM_ADMIN_ID and message.from_user and message.from_user.id != int(TELEGRAM_ADMIN_ID):
+    sender_id = message.from_user.id if message.from_user else None
+    if not is_user_authorized(sender_id, admin_ids):
+        logger.warning(f"Unauthorized upload attempt from user ID {sender_id}")
         await message.reply("⛔ Извините, у вас нет прав на добавление книг на этот сервер.")
         return
 
@@ -265,7 +305,13 @@ async def handle_document(message: types.Message, bot: Bot):
         return
 
     job_id = uuid.uuid4().hex[:8]
-    save_path = INBOX_DIR / f"{job_id}_{file_name}"
+    try:
+        save_path = sanitize_inbox_path(job_id, file_name, INBOX_DIR)
+    except ValueError as e:
+        logger.error(f"Filename security error: {e}")
+        await message.reply("⚠️ Недопустимое имя файла.", parse_mode="HTML")
+        return
+
     safe_name = html.escape(file_name)
 
     init_msg = await message.reply(
@@ -348,8 +394,9 @@ async def handle_document(message: types.Message, bot: Bot):
     await safe_edit_message(bot, message.chat.id, init_msg.message_id, mode_text, reply_markup=keyboard)
 
 async def main():
+    settings = validate_config()
     init_db()
-    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    bot = Bot(token=settings.telegram_bot_token)
     logger.info("Starting Telegram Bot with Long Polling (outbound HTTPS satisfying Telegram requirements)...")
     await bot.delete_webhook(drop_pending_updates=False)
     
