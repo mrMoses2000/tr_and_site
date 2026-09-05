@@ -77,9 +77,9 @@ if (( ! ORIGIN_ONLY )); then
 fi
 
 install -d -o "$WRITER_USER" -g logos -m 2750 "$RELEASE_ROOT"
-for directory in releases staging backups; do
+for directory in releases staging backups build-work; do
   mode=2750
-  [[ "$directory" = staging || "$directory" = backups ]] && mode=2770
+  [[ "$directory" = staging || "$directory" = backups || "$directory" = build-work ]] && mode=2770
   install -d -o "$WRITER_USER" -g logos -m "$mode" "$RELEASE_ROOT/$directory"
 done
 install -d -o root -g root -m 0755 "$CONFIG_DIR"
