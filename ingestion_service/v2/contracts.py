@@ -37,6 +37,9 @@ class DocumentBlock(BaseModel):
     items: Optional[list[list["DocumentBlock"]]] = None
     imageRef: Optional[str] = None
     alt: Optional[str] = None
+    caption: Optional[str] = None
+    captionRuns: Optional[list[InlineRun]] = None
+    model_config = {"extra": "ignore"}
 
 
 class PageRange(BaseModel):
@@ -146,23 +149,26 @@ def adapt_manifest_v1_to_v2(v1_data: dict) -> BookManifestV2:
     for p in pages_data:
         p_num = p.get("pageNumber", 1)
         blocks: list[DocumentBlock] = []
-        for idx, para in enumerate(p.get("paragraphs", [])):
-            blk_id = f"blk-{slug}-p{p_num}-{idx}"
-            text = para.get("ru") or para.get("en") or ""
-            cand_hash = f"cand-p{p_num}-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:8]}"
-            anchor = SourceAnchor(
-                sourceSha256="sha256-v1-untracked",
-                pdfPageIndex=p_num,
-                extractionMethod="native",
-                candidateHash=cand_hash,
-            )
-            run = InlineRun(
-                id=f"{blk_id}-r0",
-                text=text,
-                language="ru",
-                source=anchor,
-            )
-            blocks.append(DocumentBlock(type="paragraph", id=blk_id, runs=[run]))
+        if p.get("blocks"):
+            blocks = [DocumentBlock.model_validate(b) for b in p["blocks"]]
+        else:
+            for idx, para in enumerate(p.get("paragraphs", [])):
+                blk_id = f"blk-{slug}-p{p_num}-{idx}"
+                text = para.get("ru") or para.get("en") or ""
+                cand_hash = f"cand-p{p_num}-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:8]}"
+                anchor = SourceAnchor(
+                    sourceSha256="sha256-v1-untracked",
+                    pdfPageIndex=p_num,
+                    extractionMethod="native",
+                    candidateHash=cand_hash,
+                )
+                run = InlineRun(
+                    id=f"{blk_id}-r0",
+                    text=text,
+                    language="ru",
+                    source=anchor,
+                )
+                blocks.append(DocumentBlock(type="paragraph", id=blk_id, runs=[run]))
 
         pages_v2.append(
             PageV2(

@@ -1,3 +1,4 @@
+import hashlib
 import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -6,6 +7,8 @@ from PIL import Image
 
 from .lang_detector import detect_language
 from .ast.normalization import normalize_text
+from .ast.builder import DocumentAstBuilder
+from .ast.validator import FidelityValidator
 
 
 CYRILLIC_TO_LATIN = {
@@ -37,10 +40,33 @@ def slugify_cyrillic(text: str) -> str:
     return slug or "book"
 
 class PDFExtractor:
-    def __init__(self, pdf_path: str | Path):
+    def __init__(self, pdf_path: str | Path, source_sha256: Optional[str] = None):
         self.pdf_path = Path(pdf_path)
         self.doc = fitz.open(str(self.pdf_path))
         self.total_pages = len(self.doc)
+        if source_sha256:
+            self.source_sha256 = source_sha256
+        else:
+            with open(self.pdf_path, "rb") as f:
+                self.source_sha256 = hashlib.sha256(f.read()).hexdigest()
+        self.slug = slugify_cyrillic(self.pdf_path.name)
+        self.builder = DocumentAstBuilder(slug=self.slug, source_sha256=self.source_sha256)
+        self.validator = FidelityValidator()
+
+    def get_content_drawings(self, page: fitz.Page) -> List[Dict[str, Any]]:
+        content = []
+        h = page.rect.height
+        w = page.rect.width
+        for d in page.get_drawings():
+            r = d.get("rect")
+            if not r:
+                continue
+            if r.x1 < 25 or r.x0 > w - 25 or r.y1 < 30 or r.y0 > h - 30:
+                continue
+            if abs(r.y1 - r.y0) < 1.5 and r.y0 > h * 0.7 and (r.x1 - r.x0) < 220:
+                continue
+            content.append(d)
+        return content
 
     def is_artifact_metadata(self, val: Optional[str]) -> bool:
         if not val or not val.strip():
@@ -239,83 +265,79 @@ class PDFExtractor:
 
     def extract_page_structure(self, page_index: int) -> Dict[str, Any]:
         """
-        Extracts structured page content:
-        - Filters running headers and footers
-        - Extracts bottom footnotes into structured {id, textRu, textEn}
-        - Segments text into logical paragraphs
-        - Reconstructs soft hyphens (\x1e)
+        Extracts structured page content using DocumentAstBuilder and validates fidelity:
+        - Constructs authoritative AST DocumentPage with typed blocks
+        - Validates multiset digits and figure presence via FidelityValidator
+        - Populates legacy paragraphs and footnotes from AST for backward compatibility
         """
         page = self.doc[page_index]
-        rect = page.rect
-        blocks = page.get_text("blocks")
         page_num = page_index + 1
 
+        ast_page = self.builder.build_page(
+            page, page_index=page_index, printed_page_label=str(page_num)
+        )
+
         body_paragraphs: List[Dict[str, str]] = []
-        footnotes: List[Dict[str, Any]] = []
         chapter_title: Optional[str] = None
-
         p_idx = 1
-        for b in blocks:
-            # b: (x0, y0, x1, y1, text, block_no, block_type)
-            if len(b) < 5 or b[6] != 0: # 0 = text block
-                continue
-            y0, y1 = b[1], b[3]
-            raw_text = b[4].strip()
-            if not raw_text:
-                continue
-
-            # 1. Filter running header at top of page (y1 < 50)
-            if y1 < 50:
-                continue
-
-            # 2. Filter running footer at very bottom if it is just a page number
-            if y0 > rect.height - 40 and re.match(r'^\d{1,4}$', raw_text):
-                continue
-
-            # 3. Detect footnotes at bottom of page (y0 > 75% height)
-            if y0 > rect.height * 0.75:
-                fn_match = re.match(r'^(?:\[(\d+)\]|(\d+)\s+([А-ЯЁA-Z].*))', raw_text, re.DOTALL)
-                if fn_match:
-                    fn_id = int(fn_match.group(1) or fn_match.group(2))
-                    fn_text = (fn_match.group(3) if fn_match.group(2) else raw_text[len(f"[{fn_id}]"): ]).strip()
-                    fn_clean = normalize_text(fn_text).normalized_text
-                    fn_clean = re.sub(r'\n(?!\n)', ' ', fn_clean).strip()
-                    footnotes.append({
-                        "id": fn_id,
-                        "textRu": fn_clean,
-                        "textEn": fn_clean
+        for b in ast_page.blocks:
+            if b.type == "heading" and not chapter_title:
+                h_text = "".join(r.text for r in b.runs).strip()
+                if h_text:
+                    chapter_title = h_text
+            elif b.type == "paragraph":
+                p_text = "".join(r.text for r in b.runs).strip()
+                if p_text:
+                    body_paragraphs.append({
+                        "id": b.id or f"p-{page_num}-{p_idx}",
+                        "en": p_text,
+                        "ru": p_text,
                     })
-                    continue
-
-            # 4. Clean body text: soft hyphens, excessive spaces with reversible normalization
-            cleaned = normalize_text(raw_text).normalized_text
-            cleaned = re.sub(r'\n(?!\n)', ' ', cleaned).strip()
-
-            # 5. Check if block is a short heading
-            if len(cleaned) < 80 and not cleaned.endswith(('.', '!', '?')) and not chapter_title:
-                if re.match(r'^[А-ЯЁA-Z0-9\s—–IVXLCDM.:]+$', cleaned):
-                    chapter_title = cleaned
-
-            body_paragraphs.append({
-                "id": f"p-{page_num}-{p_idx}",
-                "en": cleaned,
-                "ru": cleaned
-            })
-            p_idx += 1
+                    p_idx += 1
 
         if not body_paragraphs:
             body_paragraphs.append({
                 "id": f"p-{page_num}-1",
                 "en": "(Пустая страница)",
-                "ru": "(Пустая страница)"
+                "ru": "(Пустая страница)",
             })
+
+        footnotes: List[Dict[str, Any]] = []
+        for fn in ast_page.footnotes:
+            fn_text = " ".join(
+                "".join(r.text for r in pb.runs) for pb in fn.blocks if hasattr(pb, "runs")
+            ).strip()
+            footnotes.append({
+                "id": int(fn.label) if fn.label.isdigit() else fn.label,
+                "textRu": fn_text,
+                "textEn": fn_text,
+            })
+
+        content_drawings = self.get_content_drawings(page)
+        fig_blocks = [b for b in ast_page.blocks if b.type == "figure"]
+        val_figures = self.validator.validate_figures_presence(
+            page_index=page_index,
+            drawing_count=len(content_drawings),
+            figure_blocks=fig_blocks,
+        )
+        raw_text = page.get_text("text") or ""
+        norm_combined = " ".join(p["ru"] for p in body_paragraphs)
+        val_digits = self.validator.validate_multiset_digits(raw_text, norm_combined)
 
         return {
             "pageNumber": page_num,
             "chapterTitle": chapter_title,
             "paragraphs": body_paragraphs,
             "footnotes": footnotes,
-            "readingTimeMinutes": max(1, len(body_paragraphs) // 2)
+            "readingTimeMinutes": max(1, len(body_paragraphs) // 2),
+            "blocks": [b.model_dump(by_alias=True) for b in ast_page.blocks],
+            "layoutDetected": ast_page.layout_detected,
+            "reviewStatus": ast_page.review_status,
+            "normalizationProvenance": ast_page.normalization_provenance,
+            "fidelityValidation": {
+                "figures": val_figures,
+                "digits": val_digits,
+            },
         }
 
     def extract_page_text(self, page_index: int) -> str:

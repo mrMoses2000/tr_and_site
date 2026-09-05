@@ -137,23 +137,12 @@ class DocumentAstBuilder:
         if not prev_lines or not curr_lines:
             return False
 
-        prev_spans = [
-            s.get("text", "")
-            for l in prev_lines
-            for s in l.get("spans", [])
-            if s.get("text", "")
-        ]
-        curr_spans = [
-            s.get("text", "")
-            for l in curr_lines
-            for s in l.get("spans", [])
-            if s.get("text", "")
-        ]
-        if not prev_spans or not curr_spans:
-            return False
-
-        prev_end_text = prev_spans[-1].strip()
-        curr_start_text = curr_spans[0].strip()
+        prev_end_text = "".join(
+            s.get("text", "") for l in prev_lines for s in l.get("spans", [])
+        ).rstrip(" \t\r\n")
+        curr_start_text = "".join(
+            s.get("text", "") for l in curr_lines for s in l.get("spans", [])
+        ).lstrip(" \t\r\n")
         if not prev_end_text or not curr_start_text:
             return False
 

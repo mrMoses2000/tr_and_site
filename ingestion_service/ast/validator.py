@@ -37,16 +37,35 @@ class FidelityValidator:
             },
         }
 
-    def validate_figures_presence(self, drawings_count: int, figure_blocks_count: int) -> Dict[str, Any]:
+    def validate_figures_presence(
+        self,
+        drawing_count: Optional[int] = None,
+        figure_blocks: Any = None,
+        page_index: Optional[int] = None,
+        drawings_count: Optional[int] = None,
+        figure_blocks_count: Optional[int] = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
         """
         Validates that when vector drawings or diagrams are present on a page,
         at least one FigureBlock exists.
         """
-        passed = not (drawings_count >= 5 and figure_blocks_count == 0)
+        d_cnt = drawing_count if drawing_count is not None else (drawings_count or 0)
+        if isinstance(figure_blocks, list):
+            f_cnt = len(figure_blocks)
+        elif isinstance(figure_blocks, int):
+            f_cnt = figure_blocks
+        elif figure_blocks_count is not None:
+            f_cnt = figure_blocks_count
+        else:
+            f_cnt = 0
+
+        passed = not (d_cnt >= 5 and f_cnt == 0)
         return {
             "status": "PASS" if passed else "FAIL",
-            "drawings_count": drawings_count,
-            "figure_blocks_count": figure_blocks_count,
+            "page_index": page_index,
+            "drawing_count": d_cnt,
+            "figure_blocks_count": f_cnt,
         }
 
     def validate_page_fidelity(
