@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef, type FC } from 'react';
 import { Search, X, ArrowRight, CornerDownLeft } from 'lucide-react';
-import { searchPages, type SearchMatch } from '../domain/searchEngine';
+import { searchPagesV2, type SearchMatchV2 } from '../domain/search/searchEngineV2';
 import type { PageData } from '../domain/types';
 
 interface SearchDialogProps {
   isOpen: boolean;
   onClose: () => void;
   pages: PageData[];
-  onSelectPage: (page: number) => void;
+  onSelectPage: (page: number, blockId?: string) => void;
 }
 
 export const SearchDialog: FC<SearchDialogProps> = ({
@@ -17,7 +17,9 @@ export const SearchDialog: FC<SearchDialogProps> = ({
   onSelectPage,
 }) => {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchMatch[]>([]);
+  const [results, setResults] = useState<SearchMatchV2[]>([]);
+  const [totalMatches, setTotalMatches] = useState(0);
+  const [isTruncated, setIsTruncated] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -26,16 +28,28 @@ export const SearchDialog: FC<SearchDialogProps> = ({
     } else {
       setQuery('');
       setResults([]);
+      setTotalMatches(0);
+      setIsTruncated(false);
     }
   }, [isOpen]);
 
   useEffect(() => {
-    if (!query.trim() || query.trim().length < 2) {
+    const trimmed = query.trim();
+    if (!trimmed || trimmed.length < 2) {
       setResults([]);
+      setTotalMatches(0);
+      setIsTruncated(false);
       return;
     }
-    const matches = searchPages(pages, query, 50);
-    setResults(matches);
+
+    const timer = setTimeout(() => {
+      const searchOutput = searchPagesV2(pages, trimmed, { maxResults: 50, snippetRadius: 50 });
+      setResults(searchOutput.matches);
+      setTotalMatches(searchOutput.totalMatches);
+      setIsTruncated(searchOutput.truncated);
+    }, 200);
+
+    return () => clearTimeout(timer);
   }, [query, pages]);
 
   if (!isOpen) return null;
@@ -62,7 +76,7 @@ export const SearchDialog: FC<SearchDialogProps> = ({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Поиск по тексту (на русском или английском)..."
+            placeholder="Поиск по тексту книги и сноскам..."
             className="flex-1 bg-transparent px-3 text-sm outline-hidden"
             style={{ color: 'var(--text-primary)' }}
           />
@@ -92,7 +106,7 @@ export const SearchDialog: FC<SearchDialogProps> = ({
 
           {query.trim().length < 2 && (
             <div className="py-10 text-center text-xs opacity-50">
-              Введите не менее 2 символов для поиска по всем 22 страницам книги и сноскам.
+              Введите не менее 2 символов для поиска по всем {pages.length} страницам книги и сноскам.
             </div>
           )}
 
@@ -101,7 +115,7 @@ export const SearchDialog: FC<SearchDialogProps> = ({
               key={`${match.pageNumber}-${match.paragraphId}-${idx}`}
               type="button"
               onClick={() => {
-                onSelectPage(match.pageNumber);
+                onSelectPage(match.pageNumber, match.paragraphId);
                 onClose();
               }}
               className="group flex w-full flex-col rounded-xl border p-3 text-left transition-all hover:ring-1 cursor-pointer"
@@ -127,6 +141,14 @@ export const SearchDialog: FC<SearchDialogProps> = ({
                   >
                     {match.language === 'ru' ? 'Русский' : 'Original EN'}
                   </span>
+                  {match.targetType === 'footnote' && (
+                    <span
+                      className="rounded px-1 text-[10px] font-semibold"
+                      style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}
+                    >
+                      Сноска {match.footnoteId}
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity text-[11px]" style={{ color: 'var(--accent)' }}>
@@ -152,7 +174,10 @@ export const SearchDialog: FC<SearchDialogProps> = ({
         {/* Footer info */}
         {results.length > 0 && (
           <div className="flex items-center justify-between border-t px-4 py-2.5 text-[11px] opacity-60" style={{ borderColor: 'var(--border-subtle)' }}>
-            <span>Найдено совпадений: {results.length}</span>
+            <span>
+              Найдено совпадений: {totalMatches}
+              {isTruncated && ` (показаны первые ${results.length})`}
+            </span>
             <div className="flex items-center space-x-1">
               <CornerDownLeft className="h-3 w-3" />
               <span>нажмите на результат для перехода</span>
