@@ -136,6 +136,7 @@ def test_atomic_promotion_and_rollback_pointer(tmp_path):
     initial_scan.write_bytes(b"WEBP0")
     staging_mgr.compute_checksums("job-initial")
     v1_dir = releases_dir / "rel-v1"
+    releases_dir.mkdir(parents=True)
     initial_stage.rename(v1_dir)
     current_symlink.symlink_to(v1_dir)
 
