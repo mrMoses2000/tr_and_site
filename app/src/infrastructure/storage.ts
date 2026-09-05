@@ -1,52 +1,31 @@
 /**
- * Storage adapter with fallback for test and non-browser environments
+ * Storage adapter with namespaced V2 persistence, legacy V1 fallback, and automatic migration
  */
 import type { ReaderSettings, ResearchCard } from '../domain/types';
-import { DEFAULT_SETTINGS, validateSettings } from '../domain/settings';
-
-const SETTINGS_KEY = 'theology_reader_settings_v1';
-const LAST_PAGE_KEY = 'theology_reader_last_page_v1';
-const BOOKMARKS_KEY = 'theology_reader_bookmarks_v1';
-const CARDS_KEY = 'theology_reader_cards_v1';
+import {
+  StorageServiceV2,
+  migrateLegacyStorage,
+  MemoryStorageBackend,
+} from '../domain/storage/storageV2';
+import type { ResearchCardV2 } from '../domain/v2/types';
 
 export interface IStorageService {
   getSettings(): ReaderSettings;
   saveSettings(settings: ReaderSettings): void;
-  getLastPage(defaultPage: number): number;
-  saveLastPage(page: number): void;
-  getBookmarks(): number[];
-  toggleBookmark(page: number): number[];
-  getCards(): ResearchCard[];
-  saveCards(cards: ResearchCard[]): void;
-  addCard(card: ResearchCard): ResearchCard[];
-  updateCard(id: string, updates: Partial<ResearchCard>): ResearchCard[];
-  deleteCard(id: string): ResearchCard[];
-}
-
-class MemoryStorageBackend implements Storage {
-  private store: Record<string, string> = {};
-  get length(): number {
-    return Object.keys(this.store).length;
-  }
-  clear(): void {
-    this.store = {};
-  }
-  getItem(key: string): string | null {
-    return this.store[key] ?? null;
-  }
-  key(index: number): string | null {
-    return Object.keys(this.store)[index] ?? null;
-  }
-  removeItem(key: string): void {
-    delete this.store[key];
-  }
-  setItem(key: string, value: string): void {
-    this.store[key] = value;
-  }
+  getLastPage(defaultPage: number, bookSlug?: string): number;
+  saveLastPage(page: number, bookSlug?: string): void;
+  getBookmarks(bookSlug?: string): number[];
+  toggleBookmark(page: number, bookSlug?: string): number[];
+  getCards(bookSlug?: string): ResearchCard[];
+  saveCards(cards: ResearchCard[], bookSlug?: string): void;
+  addCard(card: ResearchCard, bookSlug?: string): ResearchCard[];
+  updateCard(id: string, updates: Partial<ResearchCard>, bookSlug?: string): ResearchCard[];
+  deleteCard(id: string, bookSlug?: string): ResearchCard[];
 }
 
 export class LocalStorageService implements IStorageService {
   private backend: Storage;
+  public v2: StorageServiceV2;
 
   constructor(backend?: Storage) {
     if (backend) {
@@ -56,108 +35,69 @@ export class LocalStorageService implements IStorageService {
     } else {
       this.backend = new MemoryStorageBackend();
     }
+    this.v2 = new StorageServiceV2(this.backend);
+
+    // Automatically trigger idempotent migration
+    migrateLegacyStorage(this.backend);
   }
 
   getSettings(): ReaderSettings {
-    try {
-      const raw = this.backend.getItem(SETTINGS_KEY);
-      if (!raw) return DEFAULT_SETTINGS;
-      const parsed = JSON.parse(raw);
-      return validateSettings(parsed);
-    } catch {
-      return DEFAULT_SETTINGS;
-    }
+    return this.v2.getSettings();
   }
 
   saveSettings(settings: ReaderSettings): void {
-    try {
-      this.backend.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch {
-      // Ignore quota errors gracefully
-    }
+    this.v2.saveSettings(settings);
   }
 
-  getLastPage(defaultPage: number): number {
-    try {
-      const raw = this.backend.getItem(LAST_PAGE_KEY);
-      if (!raw) return defaultPage;
-      const parsed = parseInt(raw, 10);
-      return Number.isNaN(parsed) ? defaultPage : parsed;
-    } catch {
-      return defaultPage;
-    }
+  getLastPage(defaultPage: number, bookSlug = 'schreiner-ntt'): number {
+    const loc = this.v2.getLastLocation(bookSlug, {
+      bookSlug,
+      pageNumber: defaultPage,
+    });
+    return loc.pageNumber;
   }
 
-  saveLastPage(page: number): void {
-    try {
-      this.backend.setItem(LAST_PAGE_KEY, page.toString());
-    } catch {
-      // Ignore errors
-    }
+  saveLastPage(page: number, bookSlug = 'schreiner-ntt'): void {
+    this.v2.saveLastLocation(bookSlug, {
+      bookSlug,
+      pageNumber: page,
+    });
   }
 
-  getBookmarks(): number[] {
-    try {
-      const raw = this.backend.getItem(BOOKMARKS_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
+  getBookmarks(bookSlug = 'schreiner-ntt'): number[] {
+    return this.v2.getBookmarks(bookSlug);
   }
 
-  toggleBookmark(page: number): number[] {
-    const current = this.getBookmarks();
-    const next = current.includes(page)
-      ? current.filter(p => p !== page)
-      : [...current, page].sort((a, b) => a - b);
-    try {
-      this.backend.setItem(BOOKMARKS_KEY, JSON.stringify(next));
-    } catch {
-      // Ignore
-    }
-    return next;
+  toggleBookmark(page: number, bookSlug = 'schreiner-ntt'): number[] {
+    return this.v2.toggleBookmark(bookSlug, page);
   }
 
-  getCards(): ResearchCard[] {
-    try {
-      const raw = this.backend.getItem(CARDS_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
+  getCards(bookSlug = 'schreiner-ntt'): ResearchCard[] {
+    const cardsV2 = this.v2.getCards(bookSlug);
+    return cardsV2 as ResearchCard[];
   }
 
-  saveCards(cards: ResearchCard[]): void {
-    try {
-      this.backend.setItem(CARDS_KEY, JSON.stringify(cards));
-    } catch {
-      // Ignore quota errors
-    }
+  saveCards(cards: ResearchCard[], bookSlug = 'schreiner-ntt'): void {
+    this.v2.saveCards(bookSlug, cards as ResearchCardV2[]);
   }
 
-  addCard(card: ResearchCard): ResearchCard[] {
-    const current = this.getCards();
-    const next = [card, ...current];
-    this.saveCards(next);
-    return next;
+  addCard(card: ResearchCard, bookSlug = 'schreiner-ntt'): ResearchCard[] {
+    const cardV2: ResearchCardV2 = {
+      ...card,
+      bookSlug,
+    };
+    const updated = this.v2.addCard(bookSlug, cardV2);
+    return updated as ResearchCard[];
   }
 
-  updateCard(id: string, updates: Partial<ResearchCard>): ResearchCard[] {
-    const current = this.getCards();
-    const next = current.map(c => (c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c));
-    this.saveCards(next);
-    return next;
+  updateCard(id: string, updates: Partial<ResearchCard>, bookSlug = 'schreiner-ntt'): ResearchCard[] {
+    const updated = this.v2.updateCard(bookSlug, id, updates as Partial<ResearchCardV2>);
+    return updated as ResearchCard[];
   }
 
-  deleteCard(id: string): ResearchCard[] {
-    const current = this.getCards();
-    const next = current.filter(c => c.id !== id);
-    this.saveCards(next);
-    return next;
+  deleteCard(id: string, bookSlug = 'schreiner-ntt'): ResearchCard[] {
+    const updated = this.v2.deleteCard(bookSlug, id);
+    return updated as ResearchCard[];
   }
 }
 

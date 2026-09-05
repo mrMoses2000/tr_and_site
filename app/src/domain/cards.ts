@@ -1,4 +1,6 @@
 import type { ResearchCard, CardTag, HighlightColor } from './types';
+import type { BookCitationMetadata } from './v2/types';
+import { formatAcademicCitationV2, exportCardsToMarkdownV2 } from './citation';
 
 export const CARD_TAG_LABELS: Record<CardTag, { label: string; labelEn: string; iconName: string }> = {
   thesis: { label: 'Тезис', labelEn: 'Thesis', iconName: 'Bookmark' },
@@ -41,6 +43,9 @@ export function generateCardId(): string {
 }
 
 export interface CreateCardInput {
+  bookSlug?: string;
+  releaseId?: string;
+  citationSnapshot?: BookCitationMetadata;
   pageNumber: number;
   paragraphId?: string;
   quote: string;
@@ -54,6 +59,9 @@ export function createResearchCard(input: CreateCardInput): ResearchCard {
   const now = new Date().toISOString();
   return {
     id: generateCardId(),
+    bookSlug: input.bookSlug || 'schreiner-ntt',
+    releaseId: input.releaseId,
+    citationSnapshot: input.citationSnapshot,
     pageNumber: input.pageNumber,
     paragraphId: input.paragraphId,
     quote: input.quote.trim(),
@@ -94,14 +102,22 @@ export function filterResearchCards(cards: ResearchCard[], options: FilterCardOp
   return filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
-export function formatAcademicCitation(card: ResearchCard): string {
+export function formatAcademicCitation(card: ResearchCard, metadata?: BookCitationMetadata): string {
+  if (metadata || card.citationSnapshot || (card.bookSlug && card.bookSlug !== 'schreiner-ntt')) {
+    return formatAcademicCitationV2(card as any, card.quoteLanguage, metadata);
+  }
+
   if (card.quoteLanguage === 'ru') {
     return `«${card.quote}» // Шрайнер Т. Богословие Нового Завета: возвеличивание Бога во Христе. Приложение: Размышления о богословии Нового Завета. С. ${card.pageNumber}.`;
   }
   return `"${card.quote}" // Schreiner, Thomas R. New Testament Theology: Magnifying God in Christ. Appendix: Reflections on New Testament Theology. P. ${card.pageNumber}.`;
 }
 
-export function exportCardsToMarkdown(cards: ResearchCard[]): string {
+export function exportCardsToMarkdown(cards: ResearchCard[], metadata?: BookCitationMetadata): string {
+  if (metadata || (cards[0] && cards[0].citationSnapshot) || (cards[0]?.bookSlug && cards[0].bookSlug !== 'schreiner-ntt')) {
+    return exportCardsToMarkdownV2(cards as any, metadata);
+  }
+
   const lines: string[] = [
     '# Академические выписки и карточки мыслей',
     '**Источник:** Томас Р. Шрайнер, *Богословие Нового Завета* (Приложение, с. 867–888)',
@@ -131,3 +147,4 @@ export function exportCardsToMarkdown(cards: ResearchCard[]): string {
 
   return lines.join('\n');
 }
+

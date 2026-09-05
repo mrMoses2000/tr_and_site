@@ -38,6 +38,7 @@ export function App() {
     canGoNext,
     canGoPrev,
     goToPage,
+    navigateLocation,
     nextPage,
     prevPage,
     toggleBookmark,
@@ -88,15 +89,13 @@ export function App() {
   }, []);
 
   const handleOpenBook = useCallback((slug: string, page?: number) => {
-    selectBook(slug);
-    if (page) {
-      goToPage(page);
-    }
     setCurrentView('reader');
-    if (typeof window !== 'undefined') {
-      window.location.hash = `book=${slug}&page=${page || 1}`;
+    if (page !== undefined) {
+      navigateLocation({ bookSlug: slug, pageNumber: page });
+    } else {
+      selectBook(slug);
     }
-  }, [selectBook, goToPage]);
+  }, [selectBook, navigateLocation]);
 
   const handleBackToCatalog = useCallback(() => {
     setCurrentView('home');

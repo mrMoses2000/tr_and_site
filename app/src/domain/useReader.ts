@@ -5,41 +5,53 @@ import { calculateProgress } from './progress';
 import { defaultStorage } from '../infrastructure/storage';
 import type { ReaderSettings, ReaderMode, PageData, FootnotePair, ResearchCard } from './types';
 import { createResearchCard, type CreateCardInput } from './cards';
+import {
+  parseReaderLocation,
+  serializeReaderLocation,
+  resolveAndValidateLocation,
+  type ManifestBoundsResolver,
+} from './router';
+import type { ReaderLocationV2 } from './storage/storageV2';
+import { extractBookCitationMetadata } from './citation';
+
+const boundsResolver: ManifestBoundsResolver = (slug: string) => {
+  const b = registeredBooks[slug];
+  if (!b) return null;
+  return {
+    startPage: b.startPage,
+    endPage: b.endPage,
+  };
+};
 
 export function useReader() {
-  const getInitialBookSlug = () => {
+  const getInitialLocation = (): ReaderLocationV2 => {
     if (typeof window !== 'undefined' && window.location.hash) {
-      const match = window.location.hash.match(/book=([a-zA-Z0-9_-]+)/);
-      if (match && registeredBooks[match[1]]) {
-        return match[1];
+      const parsed = parseReaderLocation(window.location.hash, 'schreiner-ntt');
+      if (parsed.bookSlug && registeredBooks[parsed.bookSlug]) {
+        return resolveAndValidateLocation(parsed, boundsResolver);
       }
     }
-    return 'schreiner-ntt';
+    const defaultSlug = 'schreiner-ntt';
+    const initialManifest = getBookManifest(defaultSlug);
+    const lastPage = defaultStorage.getLastPage(initialManifest.startPage, defaultSlug);
+    return {
+      bookSlug: defaultSlug,
+      pageNumber: clampPage(lastPage, initialManifest.startPage, initialManifest.endPage),
+    };
   };
 
-  const [currentBookSlug, setCurrentBookSlug] = useState<string>(getInitialBookSlug);
+  const initialLoc = useMemo(getInitialLocation, []);
+  const [currentBookSlug, setCurrentBookSlug] = useState<string>(initialLoc.bookSlug || 'schreiner-ntt');
+  const [currentPage, setCurrentPage] = useState<number>(initialLoc.pageNumber || 867);
+
   const manifest = useMemo(() => getBookManifest(currentBookSlug), [currentBookSlug]);
   const minPage = manifest.startPage;
   const maxPage = manifest.endPage;
 
-  // Initialize page from URL hash (e.g. #page=870) or localStorage
-  const initialPage = useMemo(() => {
-    if (typeof window !== 'undefined' && window.location.hash) {
-      const match = window.location.hash.match(/page=(\d+)/);
-      if (match) {
-        const p = parseInt(match[1], 10);
-        if (!Number.isNaN(p)) {
-          return clampPage(p, minPage, maxPage);
-        }
-      }
-    }
-    return defaultStorage.getLastPage(minPage);
-  }, [minPage, maxPage]);
-
-  const [currentPage, setCurrentPage] = useState<number>(initialPage);
   const [settings, setSettings] = useState<ReaderSettings>(() => defaultStorage.getSettings());
-  const [bookmarks, setBookmarks] = useState<number[]>(() => defaultStorage.getBookmarks());
-  const [cards, setCards] = useState<ResearchCard[]>(() => defaultStorage.getCards());
+  const [bookmarks, setBookmarks] = useState<number[]>(() => defaultStorage.getBookmarks(currentBookSlug));
+  const [cards, setCards] = useState<ResearchCard[]>(() => defaultStorage.getCards(currentBookSlug));
+
   const [activeFootnote, setActiveFootnote] = useState<FootnotePair | null>(null);
   const [isTocOpen, setIsTocOpen] = useState<boolean>(false);
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
@@ -63,6 +75,12 @@ export function useReader() {
     document.documentElement.setAttribute('data-theme', settings.theme);
   }, [settings.theme]);
 
+  // When currentBookSlug changes, re-fetch bookmarks and cards for that specific book
+  useEffect(() => {
+    setBookmarks(defaultStorage.getBookmarks(currentBookSlug));
+    setCards(defaultStorage.getCards(currentBookSlug));
+  }, [currentBookSlug]);
+
   // Persist settings
   const updateSettings = useCallback((updater: Partial<ReaderSettings>) => {
     setSettings(prev => {
@@ -72,38 +90,82 @@ export function useReader() {
     });
   }, []);
 
-  // Select a book from library
-  const selectBook = useCallback((slug: string) => {
-    if (registeredBooks[slug]) {
-      setCurrentBookSlug(slug);
-      const targetManifest = registeredBooks[slug];
-      setCurrentPage(targetManifest.startPage);
-      if (typeof window !== 'undefined') {
-        window.location.hash = `book=${slug}&page=${targetManifest.startPage}`;
-      }
-      const readerArea = document.getElementById('reader-scroll-container');
-      if (readerArea && typeof readerArea.scrollTo === 'function') {
-        readerArea.scrollTo({ top: 0, behavior: 'smooth' });
-      }
-      setActiveFootnote(null);
-    }
+  // Close all open overlays
+  const closeAllOverlays = useCallback(() => {
+    setIsTocOpen(false);
+    setIsSearchOpen(false);
+    setIsSettingsOpen(false);
+    setIsScanOpen(false);
+    setActiveCardModal(null);
+    setActiveFootnote(null);
   }, []);
 
-  // Update URL hash and save last page
-  const goToPage = useCallback((page: number) => {
-    const clamped = clampPage(page, minPage, maxPage);
-    setCurrentPage(clamped);
-    defaultStorage.saveLastPage(clamped);
-    if (typeof window !== 'undefined') {
-      window.location.hash = `book=${currentBookSlug}&page=${clamped}`;
+  // Central atomic navigation command (playbook 11.3)
+  const navigateLocation = useCallback((target: Partial<ReaderLocationV2>, updateHash = true) => {
+    const resolved = resolveAndValidateLocation(
+      target,
+      boundsResolver,
+      currentBookSlug,
+      currentPage
+    );
+
+    setCurrentBookSlug(resolved.bookSlug);
+    setCurrentPage(resolved.pageNumber);
+    defaultStorage.saveLastPage(resolved.pageNumber, resolved.bookSlug);
+
+    closeAllOverlays();
+
+    if (updateHash && typeof window !== 'undefined') {
+      const hash = serializeReaderLocation(resolved);
+      if (window.location.hash !== hash) {
+        window.location.hash = hash;
+      }
     }
-    // Scroll content container to top
+
+    // Scroll reader area to top
     const readerArea = document.getElementById('reader-scroll-container');
     if (readerArea && typeof readerArea.scrollTo === 'function') {
       readerArea.scrollTo({ top: 0, behavior: 'smooth' });
     }
-    setActiveFootnote(null);
-  }, [minPage, maxPage, currentBookSlug]);
+  }, [currentBookSlug, currentPage, closeAllOverlays]);
+
+  // Listen for browser Back/Forward (hashchange)
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (typeof window === 'undefined') return;
+      const hash = window.location.hash;
+      if (hash === '#catalog' || hash === '#home' || hash === '' || hash === '#') {
+        return;
+      }
+      const parsed = parseReaderLocation(hash, currentBookSlug, currentPage);
+      if (parsed.bookSlug && registeredBooks[parsed.bookSlug]) {
+        navigateLocation(parsed, false);
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [currentBookSlug, currentPage, navigateLocation]);
+
+  // Select a book from library
+  const selectBook = useCallback((slug: string) => {
+    if (registeredBooks[slug]) {
+      const targetManifest = registeredBooks[slug];
+      const savedPage = defaultStorage.getLastPage(targetManifest.startPage, slug);
+      navigateLocation({
+        bookSlug: slug,
+        pageNumber: clampPage(savedPage, targetManifest.startPage, targetManifest.endPage),
+      });
+    }
+  }, [navigateLocation]);
+
+  // Update page inside current book
+  const goToPage = useCallback((page: number) => {
+    navigateLocation({
+      bookSlug: currentBookSlug,
+      pageNumber: page,
+    });
+  }, [currentBookSlug, navigateLocation]);
 
   const nextPage = useCallback(() => {
     goToPage(getNextPage(currentPage, maxPage));
@@ -114,26 +176,31 @@ export function useReader() {
   }, [currentPage, minPage, goToPage]);
 
   const toggleBookmark = useCallback((page: number) => {
-    const updated = defaultStorage.toggleBookmark(page);
+    const updated = defaultStorage.toggleBookmark(page, currentBookSlug);
     setBookmarks(updated);
-  }, []);
+  }, [currentBookSlug]);
 
   const addCard = useCallback((input: CreateCardInput) => {
-    const newCard = createResearchCard(input);
-    const updated = defaultStorage.addCard(newCard);
+    const citationSnapshot = extractBookCitationMetadata(manifest);
+    const newCard = createResearchCard({
+      ...input,
+      bookSlug: currentBookSlug,
+      citationSnapshot,
+    });
+    const updated = defaultStorage.addCard(newCard, currentBookSlug);
     setCards(updated);
     return newCard;
-  }, []);
+  }, [currentBookSlug, manifest]);
 
   const updateCard = useCallback((id: string, updates: Partial<ResearchCard>) => {
-    const updated = defaultStorage.updateCard(id, updates);
+    const updated = defaultStorage.updateCard(id, updates, currentBookSlug);
     setCards(updated);
-  }, []);
+  }, [currentBookSlug]);
 
   const deleteCard = useCallback((id: string) => {
-    const updated = defaultStorage.deleteCard(id);
+    const updated = defaultStorage.deleteCard(id, currentBookSlug);
     setCards(updated);
-  }, []);
+  }, [currentBookSlug]);
 
   const openCreateCard = useCallback((data: {
     pageNumber: number;
@@ -219,20 +286,15 @@ export function useReader() {
           setIsSearchOpen(true);
           break;
         case 'Escape':
-          setIsTocOpen(false);
-          setIsSearchOpen(false);
-          setIsSettingsOpen(false);
-          setIsScanOpen(false);
+          closeAllOverlays();
           setIsCardsOpen(false);
-          setActiveCardModal(null);
-          setActiveFootnote(null);
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [nextPage, prevPage, cycleMode]);
+  }, [nextPage, prevPage, cycleMode, closeAllOverlays]);
 
   return {
     manifest,
@@ -257,6 +319,7 @@ export function useReader() {
     canGoNext: canGoNext(currentPage, maxPage),
     canGoPrev: canGoPrev(currentPage, minPage),
     goToPage,
+    navigateLocation,
     nextPage,
     prevPage,
     toggleBookmark,

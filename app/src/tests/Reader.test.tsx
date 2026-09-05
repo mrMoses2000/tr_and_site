@@ -94,4 +94,35 @@ describe('Integration: Reader Application', () => {
 
     expect(screen.getByText(/Моя ключевая мысль для дипломной работы/i)).toBeInTheDocument();
   });
+
+  it('switches between books atomically via TOC without page bounds contamination', () => {
+    render(<App />);
+
+    // Initially Schreiner page 867
+    expect(screen.getByText(/Томас Р\. Шрейнер/i)).toBeInTheDocument();
+    expect(screen.getByText(/Стр\. 867/i)).toBeInTheDocument();
+
+    // Open TOC
+    const tocBtn = screen.getByTitle(/Содержание/i);
+    fireEvent.click(tocBtn);
+
+    // Switch to Osborne book
+    const bookSelect = screen.getByRole('combobox');
+    fireEvent.change(bookSelect, { target: { value: 'ozborn-germenevticheskaya-spiral' } });
+
+    // Verify Osborne loaded at its start page (page 1) without being clamped to 867
+    expect(screen.getAllByText(/Грант Р\. Осборн/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Стр\. 1/i)).toBeInTheDocument();
+    expect(screen.getByText(/736 стр\./i)).toBeInTheDocument();
+
+    // Re-open TOC and switch back to Schreiner
+    fireEvent.click(screen.getByTitle(/Содержание/i));
+    const bookSelectBack = screen.getByRole('combobox');
+    fireEvent.change(bookSelectBack, { target: { value: 'schreiner-ntt' } });
+
+    // Verify Schreiner is restored at page 867
+    expect(screen.getByText(/Томас Р\. Шрейнер/i)).toBeInTheDocument();
+    expect(screen.getByText(/Стр\. 867/i)).toBeInTheDocument();
+  });
 });
+

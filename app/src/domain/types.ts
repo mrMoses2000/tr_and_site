@@ -5,10 +5,16 @@ export type ReaderMode = 'ru' | 'bilingual' | 'en';
 export type CardTag = 'thesis' | 'quote' | 'thought' | 'for-paper' | 'theology' | 'question';
 export type HighlightColor = 'amber' | 'emerald' | 'blue' | 'purple';
 
+import type { BookCitationMetadata, SourceAnchor } from './v2/types';
+
 export interface ResearchCard {
   id: string;
+  bookSlug?: string;
+  releaseId?: string;
   pageNumber: number;
   paragraphId?: string;
+  sourceAnchor?: SourceAnchor;
+  citationSnapshot?: BookCitationMetadata;
   quote: string;
   quoteLanguage: 'ru' | 'en';
   note: string;

@@ -83,3 +83,32 @@ export interface BookManifestV2 {
     audioUrl: string;
   }>;
 }
+
+export interface BookCitationMetadata {
+  shortTitle: string;
+  author: string;
+  title: string;
+  subtitle?: string;
+  publisher?: string;
+  place?: string;
+  year?: string;
+  edition?: string;
+}
+
+export interface ResearchCardV2 {
+  id: string;
+  bookSlug: string;
+  releaseId?: string;
+  pageNumber: number;
+  blockId?: string;
+  sourceAnchor?: SourceAnchor;
+  citationSnapshot?: BookCitationMetadata;
+  quote: string;
+  quoteLanguage: 'ru' | 'en' | string;
+  note: string;
+  tag: 'thesis' | 'quote' | 'thought' | 'for-paper' | 'theology' | 'question';
+  color: 'amber' | 'emerald' | 'blue' | 'purple';
+  createdAt: string;
+  updatedAt: string;
+}
+
