@@ -42,7 +42,8 @@ FREE_KIB="$(df -Pk -- "$RELEASE_ROOT" | awk 'NR==2 {print $4}')"
 (( FREE_KIB >= LOW_WATERMARK_MIB * 1024 )) || die "free disk is below low watermark"
 
 if [[ -f "$CONFIG_DIR/Caddyfile" ]]; then
-  grep -Fq "http://127.0.0.1:$ORIGIN_PORT {" "$CONFIG_DIR/Caddyfile" || die 'Caddy config is not loopback-only'
+  grep -Eq "^[[:space:]]*http://127\\.0\\.0\\.1:$ORIGIN_PORT[[:space:]]*\\{[[:space:]]*$" "$CONFIG_DIR/Caddyfile" || die 'Caddy site address is not loopback-only'
+  grep -Eq '^[[:space:]]*bind[[:space:]]+127\\.0\\.0\\.1[[:space:]]*$' "$CONFIG_DIR/Caddyfile" || die 'Caddy bind directive is not loopback-only'
 fi
 if command -v caddy >/dev/null && [[ -f "$CONFIG_DIR/Caddyfile" ]]; then
   caddy validate --config "$CONFIG_DIR/Caddyfile" --adapter caddyfile

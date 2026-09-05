@@ -38,6 +38,13 @@ accident.
    sudo cloudflared tunnel ingress validate --config /etc/logos/cloudflared/config.yml
    ```
 
+   After starting Caddy, verify the kernel socket—not only the Caddyfile:
+
+   ```bash
+   sudo ss -ltnp | grep ':8080'
+   # must show 127.0.0.1:8080, never 0.0.0.0:8080 or *:8080
+   ```
+
 ## Release and local smoke test
 
 The publisher writes to a per-job staging directory, validates checksums and

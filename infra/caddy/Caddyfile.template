@@ -5,6 +5,7 @@
 }
 
 http://127.0.0.1:__ORIGIN_PORT__ {
+	bind 127.0.0.1
 	root * __RELEASE_ROOT__/current
 	encode gzip
 

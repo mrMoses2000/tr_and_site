@@ -50,6 +50,7 @@ def test_health_contract_is_strict_and_deterministic() -> None:
 def test_caddy_template_keeps_assets_file_only_and_binds_loopback() -> None:
     template = (ROOT / "infra/caddy/Caddyfile.template").read_text(encoding="utf-8")
     assert "http://127.0.0.1:__ORIGIN_PORT__" in template
+    assert "\tbind 127.0.0.1\n" in template
     assert "@static_asset path_regexp" in template
     assert "handle @static_asset" in template
     assert "try_files {path} /index.html" in template
