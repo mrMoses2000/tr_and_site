@@ -4,13 +4,14 @@ import { ReaderContent } from '../components/ReaderContent';
 import type { PageData, ReaderSettings } from '../domain/types';
 
 const defaultSettings: ReaderSettings = {
+  fontSize: 18,
+  lineHeight: 1.6,
+  maxWidth: 800,
   theme: 'light',
   fontFamily: 'serif',
-  fontSize: 'medium',
-  lineSpacing: 'normal',
-  textAlign: 'left',
-  hyphenation: true,
   mode: 'ru',
+  showDropCap: true,
+  showScanModal: false,
 };
 
 describe('R1 Fidelity Contracts: Frontend Reader', () => {
@@ -18,6 +19,7 @@ describe('R1 Fidelity Contracts: Frontend Reader', () => {
     // Page with diagram fragments that previously triggered short-string heading heuristic
     const pageWithDiagramLabels: PageData = {
       pageNumber: 50,
+      imageSrc: '/scans/test/page_50.webp',
       readingTimeMinutes: 5,
       paragraphs: [
         { id: 'p-50-1', ru: 'Обычный вводный абзац.', en: 'Normal intro paragraph.' },
@@ -51,8 +53,9 @@ describe('R1 Fidelity Contracts: Frontend Reader', () => {
   });
 
   it('R1-10: reader renders typed AST blocks when page contains structured blocks', () => {
-    const pageWithAst: PageData & { blocks?: any[] } = {
+    const pageWithAst: PageData = {
       pageNumber: 45,
+      imageSrc: '/scans/test/page_45.webp',
       readingTimeMinutes: 5,
       paragraphs: [],
       footnotes: [],

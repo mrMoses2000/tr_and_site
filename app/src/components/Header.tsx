@@ -40,6 +40,7 @@ interface HeaderProps {
 }
 
 export const Header: FC<HeaderProps> = ({
+  bookTitle,
   author,
   chapterTitle,
   pageNumber,
