@@ -1,38 +1,45 @@
 import type { FC, ReactNode } from 'react';
-import { MessageSquare, ExternalLink, Sparkles } from 'lucide-react';
-import type { PageData, ReaderSettings, FootnotePair } from '../domain/types';
+import { MessageSquare, ExternalLink, Sparkles, Quote, Bookmark } from 'lucide-react';
+import type { PageData, ReaderSettings, FootnotePair, ResearchCard } from '../domain/types';
 
 interface ReaderContentProps {
   page: PageData;
   settings: ReaderSettings;
+  cards: ResearchCard[];
   hoveredParagraphId: string | null;
   onHoverParagraph: (id: string | null) => void;
   onSelectFootnote: (footnote: FootnotePair) => void;
   onOpenScan: () => void;
+  onOpenCreateCard: (data: {
+    pageNumber: number;
+    paragraphId?: string;
+    quote: string;
+    quoteLanguage: 'ru' | 'en';
+  }) => void;
+  onOpenCards: () => void;
 }
 
 export const ReaderContent: FC<ReaderContentProps> = ({
   page,
   settings,
+  cards,
   hoveredParagraphId,
   onHoverParagraph,
   onSelectFootnote,
   onOpenScan,
+  onOpenCreateCard,
+  onOpenCards,
 }) => {
   // Helper to parse footnote numbers into clickable elements
   const renderTextWithFootnotes = (text: string, isRu: boolean) => {
-    // Regex matches footnote superscripts like ¹, ², ³, ⁴, ⁵ or bracketed numbers or standard numbers after words
-    // Or we look up footnotes for this page
     const footnoteMap = new Map<number, FootnotePair>();
     page.footnotes.forEach(fn => footnoteMap.set(fn.id, fn));
 
-    // Match superscripts ¹-⁹ or numbers like [1] or plain footnote indicators
     const parts: ReactNode[] = [];
     const regex = /([¹²³⁴⁵⁶⁷⁸⁹]+|\^\[\d+\]|(?<=\S)\[\d+\])/g;
     let lastIndex = 0;
     let match: RegExpExecArray | null;
 
-    // Mapping unicode superscripts to numbers
     const superscriptToNum = (s: string) => {
       const supMap: Record<string, string> = {
         '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5',
@@ -91,6 +98,10 @@ export const ReaderContent: FC<ReaderContentProps> = ({
 
   const fontFamilyStyle = settings.fontFamily === 'serif' ? 'var(--font-serif)' : 'var(--font-sans)';
 
+  const getCardsForParagraph = (paraId: string) => {
+    return cards.filter(c => c.paragraphId === paraId || (c.pageNumber === page.pageNumber && !c.paragraphId));
+  };
+
   return (
     <article
       className="mx-auto w-full transition-all duration-200"
@@ -143,7 +154,7 @@ export const ReaderContent: FC<ReaderContentProps> = ({
             <button
               type="button"
               onClick={onOpenScan}
-              className="flex items-center space-x-1 rounded-md px-2 py-1 text-xs font-medium transition-all hover:opacity-80 active:scale-95"
+              className="flex items-center space-x-1 rounded-md px-2 py-1 text-xs font-medium transition-all hover:opacity-80 active:scale-95 cursor-pointer"
               style={{ backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
             >
               <span>Скан</span>
@@ -172,19 +183,61 @@ export const ReaderContent: FC<ReaderContentProps> = ({
 
             const isFirstPara = idx === 0 || (idx === 1 && page.paragraphs[0].en.length < 50);
             const useDropCap = settings.showDropCap && isFirstPara;
+            const paraCards = getCardsForParagraph(para.id);
 
             return (
-              <p
+              <div
                 key={para.id}
-                className={`text-justify transition-colors duration-150 ${useDropCap ? 'drop-cap' : ''}`}
+                data-paragraph-id={para.id}
+                data-lang="ru"
+                className="group relative rounded-xl p-2 -mx-2 transition-all"
                 style={{
-                  fontSize: `${settings.fontSize}px`,
-                  lineHeight: settings.lineHeight,
-                  color: 'var(--text-primary)',
+                  backgroundColor: paraCards.length > 0 ? 'var(--accent-soft)' : 'transparent',
                 }}
               >
-                {renderTextWithFootnotes(para.ru, true)}
-              </p>
+                <p
+                  className={`text-justify transition-colors duration-150 ${useDropCap ? 'drop-cap' : ''}`}
+                  style={{
+                    fontSize: `${settings.fontSize}px`,
+                    lineHeight: settings.lineHeight,
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  {renderTextWithFootnotes(para.ru, true)}
+                </p>
+
+                {/* Paragraph Action Toolbar on hover / active */}
+                <div className="mt-2 flex items-center space-x-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenCreateCard({
+                        pageNumber: page.pageNumber,
+                        paragraphId: para.id,
+                        quote: para.ru,
+                        quoteLanguage: 'ru',
+                      })
+                    }
+                    className="inline-flex items-center space-x-1 rounded-md px-2 py-1 font-medium transition-all hover:opacity-80 active:scale-95 cursor-pointer"
+                    style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--accent)', border: '1px solid var(--border-subtle)' }}
+                  >
+                    <Quote className="h-3 w-3" />
+                    <span>+ Карточка мысли</span>
+                  </button>
+
+                  {paraCards.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={onOpenCards}
+                      className="inline-flex items-center space-x-1 rounded-md px-2 py-1 font-medium cursor-pointer"
+                      style={{ backgroundColor: 'var(--accent)', color: 'white' }}
+                    >
+                      <Bookmark className="h-3 w-3" />
+                      <span>{paraCards.length} {paraCards.length === 1 ? 'карточка' : 'карточки'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
             );
           })}
         </div>
@@ -216,23 +269,56 @@ export const ReaderContent: FC<ReaderContentProps> = ({
                 );
               }
 
+              const paraCards = getCardsForParagraph(para.id);
+
               return (
                 <div
                   key={`en-${para.id}`}
+                  data-paragraph-id={para.id}
+                  data-lang="en"
                   onMouseEnter={() => onHoverParagraph(para.id)}
                   onMouseLeave={() => onHoverParagraph(null)}
-                  className={`rounded-lg p-2.5 text-justify transition-all duration-150 ${
+                  className={`group relative rounded-lg p-2.5 text-justify transition-all duration-150 ${
                     isHighlighted ? 'ring-1' : ''
                   }`}
                   style={{
                     fontSize: `${settings.fontSize}px`,
                     lineHeight: settings.lineHeight,
                     color: 'var(--text-primary)',
-                    backgroundColor: isHighlighted ? 'var(--accent-soft)' : 'transparent',
+                    backgroundColor: isHighlighted ? 'var(--accent-soft)' : (paraCards.length > 0 ? 'var(--accent-soft)' : 'transparent'),
                     borderColor: 'var(--accent)',
                   }}
                 >
                   {renderTextWithFootnotes(para.en, false)}
+
+                  <div className="mt-2 flex items-center space-x-2 text-[11px] opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenCreateCard({
+                          pageNumber: page.pageNumber,
+                          paragraphId: para.id,
+                          quote: para.en,
+                          quoteLanguage: 'en',
+                        })
+                      }
+                      className="inline-flex items-center space-x-1 rounded px-1.5 py-0.5 font-medium transition-all hover:opacity-80 active:scale-95 cursor-pointer"
+                      style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--accent)', border: '1px solid var(--border-subtle)' }}
+                    >
+                      <Quote className="h-2.5 w-2.5" />
+                      <span>+ Card</span>
+                    </button>
+                    {paraCards.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={onOpenCards}
+                        className="inline-flex items-center space-x-1 rounded px-1.5 py-0.5 font-semibold text-white cursor-pointer"
+                        style={{ backgroundColor: 'var(--accent)' }}
+                      >
+                        <span>{paraCards.length} {paraCards.length === 1 ? 'card' : 'cards'}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -261,23 +347,56 @@ export const ReaderContent: FC<ReaderContentProps> = ({
                 );
               }
 
+              const paraCards = getCardsForParagraph(para.id);
+
               return (
                 <div
                   key={`ru-${para.id}`}
+                  data-paragraph-id={para.id}
+                  data-lang="ru"
                   onMouseEnter={() => onHoverParagraph(para.id)}
                   onMouseLeave={() => onHoverParagraph(null)}
-                  className={`rounded-lg p-2.5 text-justify transition-all duration-150 ${
+                  className={`group relative rounded-lg p-2.5 text-justify transition-all duration-150 ${
                     isHighlighted ? 'ring-1' : ''
                   }`}
                   style={{
                     fontSize: `${settings.fontSize}px`,
                     lineHeight: settings.lineHeight,
                     color: 'var(--text-primary)',
-                    backgroundColor: isHighlighted ? 'var(--accent-soft)' : 'transparent',
+                    backgroundColor: isHighlighted ? 'var(--accent-soft)' : (paraCards.length > 0 ? 'var(--accent-soft)' : 'transparent'),
                     borderColor: 'var(--accent)',
                   }}
                 >
                   {renderTextWithFootnotes(para.ru, true)}
+
+                  <div className="mt-2 flex items-center space-x-2 text-[11px] opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenCreateCard({
+                          pageNumber: page.pageNumber,
+                          paragraphId: para.id,
+                          quote: para.ru,
+                          quoteLanguage: 'ru',
+                        })
+                      }
+                      className="inline-flex items-center space-x-1 rounded px-1.5 py-0.5 font-medium transition-all hover:opacity-80 active:scale-95 cursor-pointer"
+                      style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--accent)', border: '1px solid var(--border-subtle)' }}
+                    >
+                      <Quote className="h-2.5 w-2.5" />
+                      <span>+ Карточка мысли</span>
+                    </button>
+                    {paraCards.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={onOpenCards}
+                        className="inline-flex items-center space-x-1 rounded px-1.5 py-0.5 font-semibold text-white cursor-pointer"
+                        style={{ backgroundColor: 'var(--accent)' }}
+                      >
+                        <span>{paraCards.length} {paraCards.length === 1 ? 'карточка' : 'карточки'}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -304,19 +423,60 @@ export const ReaderContent: FC<ReaderContentProps> = ({
 
             const isFirstPara = idx === 0 || (idx === 1 && page.paragraphs[0].en.length < 50);
             const useDropCap = settings.showDropCap && isFirstPara;
+            const paraCards = getCardsForParagraph(para.id);
 
             return (
-              <p
+              <div
                 key={para.id}
-                className={`text-justify transition-colors duration-150 ${useDropCap ? 'drop-cap' : ''}`}
+                data-paragraph-id={para.id}
+                data-lang="en"
+                className="group relative rounded-xl p-2 -mx-2 transition-all"
                 style={{
-                  fontSize: `${settings.fontSize}px`,
-                  lineHeight: settings.lineHeight,
-                  color: 'var(--text-primary)',
+                  backgroundColor: paraCards.length > 0 ? 'var(--accent-soft)' : 'transparent',
                 }}
               >
-                {renderTextWithFootnotes(para.en, false)}
-              </p>
+                <p
+                  className={`text-justify transition-colors duration-150 ${useDropCap ? 'drop-cap' : ''}`}
+                  style={{
+                    fontSize: `${settings.fontSize}px`,
+                    lineHeight: settings.lineHeight,
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  {renderTextWithFootnotes(para.en, false)}
+                </p>
+
+                <div className="mt-2 flex items-center space-x-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenCreateCard({
+                        pageNumber: page.pageNumber,
+                        paragraphId: para.id,
+                        quote: para.en,
+                        quoteLanguage: 'en',
+                      })
+                    }
+                    className="inline-flex items-center space-x-1 rounded-md px-2 py-1 font-medium transition-all hover:opacity-80 active:scale-95 cursor-pointer"
+                    style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--accent)', border: '1px solid var(--border-subtle)' }}
+                  >
+                    <Quote className="h-3 w-3" />
+                    <span>+ Research Card</span>
+                  </button>
+
+                  {paraCards.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={onOpenCards}
+                      className="inline-flex items-center space-x-1 rounded-md px-2 py-1 font-medium cursor-pointer"
+                      style={{ backgroundColor: 'var(--accent)', color: 'white' }}
+                    >
+                      <Bookmark className="h-3 w-3" />
+                      <span>{paraCards.length} {paraCards.length === 1 ? 'card' : 'cards'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
             );
           })}
         </div>

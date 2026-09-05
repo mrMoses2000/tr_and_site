@@ -63,4 +63,35 @@ describe('Integration: Reader Application', () => {
 
     expect(screen.getByText(/Оригинальный скан • Стр\. 867/i)).toBeInTheDocument();
   });
+
+  it('opens cards drawer and shows empty state when no cards exist', () => {
+    render(<App />);
+
+    const cardsBtn = screen.getByTitle(/Карточки мыслей/i);
+    fireEvent.click(cardsBtn);
+
+    expect(screen.getByText(/Карточки мыслей и цитат/i)).toBeInTheDocument();
+    expect(screen.getByText(/Картотека пока пуста/i)).toBeInTheDocument();
+  });
+
+  it('allows creating a new thought card and viewing it in the drawer', () => {
+    render(<App />);
+
+    const createCardButtons = screen.getAllByText(/\+ Карточка мысли/i);
+    fireEvent.click(createCardButtons[0]);
+
+    expect(screen.getByText(/Создать карточку мысли/i)).toBeInTheDocument();
+
+    const noteInput = screen.getByPlaceholderText(/Запишите ваши мысли/i);
+    fireEvent.change(noteInput, { target: { value: 'Моя ключевая мысль для дипломной работы' } });
+
+    const saveBtn = screen.getByRole('button', { name: /Создать карточку/i });
+    fireEvent.click(saveBtn);
+
+    // Open cards drawer to verify card exists
+    const cardsBtn = screen.getByTitle(/Карточки мыслей/i);
+    fireEvent.click(cardsBtn);
+
+    expect(screen.getByText(/Моя ключевая мысль для дипломной работы/i)).toBeInTheDocument();
+  });
 });

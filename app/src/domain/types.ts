@@ -2,6 +2,22 @@ export type ReaderTheme = 'sepia' | 'light' | 'dark' | 'oled';
 export type FontFamily = 'serif' | 'sans';
 export type ReaderMode = 'ru' | 'bilingual' | 'en';
 
+export type CardTag = 'thesis' | 'quote' | 'thought' | 'for-paper' | 'theology' | 'question';
+export type HighlightColor = 'amber' | 'emerald' | 'blue' | 'purple';
+
+export interface ResearchCard {
+  id: string;
+  pageNumber: number;
+  paragraphId?: string;
+  quote: string;
+  quoteLanguage: 'ru' | 'en';
+  note: string;
+  tag: CardTag;
+  color: HighlightColor;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ParagraphPair {
   id: string;
   en: string;

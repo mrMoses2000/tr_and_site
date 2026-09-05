@@ -3,7 +3,8 @@ import { bookManifest } from '../data/bookManifest';
 import { clampPage, getNextPage, getPrevPage, canGoNext, canGoPrev } from './pagination';
 import { calculateProgress } from './progress';
 import { defaultStorage } from '../infrastructure/storage';
-import type { ReaderSettings, ReaderMode, PageData, FootnotePair } from './types';
+import type { ReaderSettings, ReaderMode, PageData, FootnotePair, ResearchCard } from './types';
+import { createResearchCard, type CreateCardInput } from './cards';
 
 export function useReader() {
   const minPage = bookManifest.startPage;
@@ -26,12 +27,23 @@ export function useReader() {
   const [currentPage, setCurrentPage] = useState<number>(initialPage);
   const [settings, setSettings] = useState<ReaderSettings>(() => defaultStorage.getSettings());
   const [bookmarks, setBookmarks] = useState<number[]>(() => defaultStorage.getBookmarks());
+  const [cards, setCards] = useState<ResearchCard[]>(() => defaultStorage.getCards());
   const [activeFootnote, setActiveFootnote] = useState<FootnotePair | null>(null);
   const [isTocOpen, setIsTocOpen] = useState<boolean>(false);
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isScanOpen, setIsScanOpen] = useState<boolean>(false);
   const [isScanSplit, setIsScanSplit] = useState<boolean>(false);
+  const [isCardsOpen, setIsCardsOpen] = useState<boolean>(false);
+  const [activeCardModal, setActiveCardModal] = useState<{
+    card?: ResearchCard;
+    initialData?: {
+      pageNumber: number;
+      paragraphId?: string;
+      quote: string;
+      quoteLanguage: 'ru' | 'en';
+    };
+  } | null>(null);
   const [hoveredParagraphId, setHoveredParagraphId] = useState<string | null>(null);
 
   // Sync theme to root html element data-theme attribute
@@ -75,6 +87,40 @@ export function useReader() {
   const toggleBookmark = useCallback((page: number) => {
     const updated = defaultStorage.toggleBookmark(page);
     setBookmarks(updated);
+  }, []);
+
+  const addCard = useCallback((input: CreateCardInput) => {
+    const newCard = createResearchCard(input);
+    const updated = defaultStorage.addCard(newCard);
+    setCards(updated);
+    return newCard;
+  }, []);
+
+  const updateCard = useCallback((id: string, updates: Partial<ResearchCard>) => {
+    const updated = defaultStorage.updateCard(id, updates);
+    setCards(updated);
+  }, []);
+
+  const deleteCard = useCallback((id: string) => {
+    const updated = defaultStorage.deleteCard(id);
+    setCards(updated);
+  }, []);
+
+  const openCreateCard = useCallback((data: {
+    pageNumber: number;
+    paragraphId?: string;
+    quote: string;
+    quoteLanguage: 'ru' | 'en';
+  }) => {
+    setActiveCardModal({ initialData: data });
+  }, []);
+
+  const openEditCard = useCallback((card: ResearchCard) => {
+    setActiveCardModal({ card });
+  }, []);
+
+  const closeCardModal = useCallback(() => {
+    setActiveCardModal(null);
   }, []);
 
   const cycleMode = useCallback(() => {
@@ -131,6 +177,10 @@ export function useReader() {
         case 'T':
           setIsTocOpen(prev => !prev);
           break;
+        case 'n':
+        case 'N':
+          setIsCardsOpen(prev => !prev);
+          break;
         case 'f':
         case 'F':
           setIsSettingsOpen(prev => !prev);
@@ -144,6 +194,8 @@ export function useReader() {
           setIsSearchOpen(false);
           setIsSettingsOpen(false);
           setIsScanOpen(false);
+          setIsCardsOpen(false);
+          setActiveCardModal(null);
           setActiveFootnote(null);
           break;
       }
@@ -160,12 +212,15 @@ export function useReader() {
     progress,
     settings,
     bookmarks,
+    cards,
     activeFootnote,
     isTocOpen,
     isSearchOpen,
     isSettingsOpen,
     isScanOpen,
     isScanSplit,
+    isCardsOpen,
+    activeCardModal,
     hoveredParagraphId,
     canGoNext: canGoNext(currentPage, maxPage),
     canGoPrev: canGoPrev(currentPage, minPage),
@@ -173,6 +228,12 @@ export function useReader() {
     nextPage,
     prevPage,
     toggleBookmark,
+    addCard,
+    updateCard,
+    deleteCard,
+    openCreateCard,
+    openEditCard,
+    closeCardModal,
     updateSettings,
     setActiveFootnote,
     setIsTocOpen,
@@ -180,6 +241,7 @@ export function useReader() {
     setIsSettingsOpen,
     setIsScanOpen,
     setIsScanSplit,
+    setIsCardsOpen,
     setHoveredParagraphId,
     cycleMode,
   };

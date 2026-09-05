@@ -1,12 +1,13 @@
 /**
  * Storage adapter with fallback for test and non-browser environments
  */
-import type { ReaderSettings } from '../domain/types';
+import type { ReaderSettings, ResearchCard } from '../domain/types';
 import { DEFAULT_SETTINGS, validateSettings } from '../domain/settings';
 
 const SETTINGS_KEY = 'theology_reader_settings_v1';
 const LAST_PAGE_KEY = 'theology_reader_last_page_v1';
 const BOOKMARKS_KEY = 'theology_reader_bookmarks_v1';
+const CARDS_KEY = 'theology_reader_cards_v1';
 
 export interface IStorageService {
   getSettings(): ReaderSettings;
@@ -15,6 +16,11 @@ export interface IStorageService {
   saveLastPage(page: number): void;
   getBookmarks(): number[];
   toggleBookmark(page: number): number[];
+  getCards(): ResearchCard[];
+  saveCards(cards: ResearchCard[]): void;
+  addCard(card: ResearchCard): ResearchCard[];
+  updateCard(id: string, updates: Partial<ResearchCard>): ResearchCard[];
+  deleteCard(id: string): ResearchCard[];
 }
 
 class MemoryStorageBackend implements Storage {
@@ -111,6 +117,46 @@ export class LocalStorageService implements IStorageService {
     } catch {
       // Ignore
     }
+    return next;
+  }
+
+  getCards(): ResearchCard[] {
+    try {
+      const raw = this.backend.getItem(CARDS_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  saveCards(cards: ResearchCard[]): void {
+    try {
+      this.backend.setItem(CARDS_KEY, JSON.stringify(cards));
+    } catch {
+      // Ignore quota errors
+    }
+  }
+
+  addCard(card: ResearchCard): ResearchCard[] {
+    const current = this.getCards();
+    const next = [card, ...current];
+    this.saveCards(next);
+    return next;
+  }
+
+  updateCard(id: string, updates: Partial<ResearchCard>): ResearchCard[] {
+    const current = this.getCards();
+    const next = current.map(c => (c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c));
+    this.saveCards(next);
+    return next;
+  }
+
+  deleteCard(id: string): ResearchCard[] {
+    const current = this.getCards();
+    const next = current.filter(c => c.id !== id);
+    this.saveCards(next);
     return next;
   }
 }

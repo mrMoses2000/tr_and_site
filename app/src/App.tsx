@@ -8,6 +8,9 @@ import { SearchDialog } from './components/SearchDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { FootnotePopup } from './components/FootnotePopup';
 import { BottomBar } from './components/BottomBar';
+import { CardModal } from './components/CardModal';
+import { CardsDrawer } from './components/CardsDrawer';
+import { FloatingSelectionToolbar } from './components/FloatingSelectionToolbar';
 import { HelpCircle, X, Keyboard } from 'lucide-react';
 
 export function App() {
@@ -18,12 +21,15 @@ export function App() {
     progress,
     settings,
     bookmarks,
+    cards,
     activeFootnote,
     isTocOpen,
     isSearchOpen,
     isSettingsOpen,
     isScanOpen,
     isScanSplit,
+    isCardsOpen,
+    activeCardModal,
     hoveredParagraphId,
     canGoNext,
     canGoPrev,
@@ -31,6 +37,12 @@ export function App() {
     nextPage,
     prevPage,
     toggleBookmark,
+    addCard,
+    updateCard,
+    deleteCard,
+    openCreateCard,
+    openEditCard,
+    closeCardModal,
     updateSettings,
     setActiveFootnote,
     setIsTocOpen,
@@ -38,6 +50,7 @@ export function App() {
     setIsSettingsOpen,
     setIsScanOpen,
     setIsScanSplit,
+    setIsCardsOpen,
     setHoveredParagraphId,
   } = useReader();
 
@@ -61,11 +74,14 @@ export function App() {
         progress={progress}
         settings={settings}
         isBookmarked={bookmarks.includes(currentPage)}
+        cardsCount={cards.length}
+        isCardsOpen={isCardsOpen}
         onToggleBookmark={() => toggleBookmark(currentPage)}
         onOpenToc={() => setIsTocOpen(true)}
         onOpenSearch={() => setIsSearchOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onToggleScan={() => setIsScanOpen(prev => !prev)}
+        onToggleCards={() => setIsCardsOpen(prev => !prev)}
         isScanOpen={isScanOpen}
         onChangeMode={(mode) => updateSettings({ mode })}
       />
@@ -80,19 +96,28 @@ export function App() {
         <ReaderContent
           page={currentPageData}
           settings={settings}
+          cards={cards}
           hoveredParagraphId={hoveredParagraphId}
           onHoverParagraph={setHoveredParagraphId}
           onSelectFootnote={setActiveFootnote}
           onOpenScan={() => setIsScanOpen(true)}
+          onOpenCreateCard={openCreateCard}
+          onOpenCards={() => setIsCardsOpen(true)}
         />
       </main>
+
+      {/* Floating Selection Toolbar for Creating Cards */}
+      <FloatingSelectionToolbar
+        currentPage={currentPage}
+        onOpenCreateCard={openCreateCard}
+      />
 
       {/* Floating Keyboard Shortcuts Help Button */}
       <button
         type="button"
         onClick={() => setIsHelpOpen(true)}
         title="Горячие клавиши [?]"
-        className="fixed bottom-18 right-4 z-20 hidden md:flex items-center justify-center rounded-full p-2.5 shadow-lg transition-all hover:scale-110 active:scale-95 border"
+        className="fixed bottom-18 right-4 z-20 hidden md:flex items-center justify-center rounded-full p-2.5 shadow-lg transition-all hover:scale-110 active:scale-95 border cursor-pointer"
         style={{
           backgroundColor: 'var(--bg-card)',
           color: 'var(--text-secondary)',
@@ -122,6 +147,27 @@ export function App() {
         isSplit={isScanSplit}
         onClose={() => setIsScanOpen(false)}
         onToggleSplit={() => setIsScanSplit(prev => !prev)}
+      />
+
+      {/* Research Thought Cards Drawer */}
+      <CardsDrawer
+        isOpen={isCardsOpen}
+        onClose={() => setIsCardsOpen(false)}
+        cards={cards}
+        currentPage={currentPage}
+        onGoToPage={goToPage}
+        onEditCard={openEditCard}
+        onDeleteCard={deleteCard}
+      />
+
+      {/* Card Creation / Edit Modal */}
+      <CardModal
+        isOpen={activeCardModal !== null}
+        onClose={closeCardModal}
+        onSave={addCard}
+        onUpdate={updateCard}
+        initialData={activeCardModal?.initialData}
+        cardToEdit={activeCardModal?.card}
       />
 
       {/* Table of Contents Drawer */}
@@ -181,7 +227,7 @@ export function App() {
               <button
                 type="button"
                 onClick={() => setIsHelpOpen(false)}
-                className="rounded p-1 hover:opacity-70"
+                className="rounded p-1 hover:opacity-70 cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -199,6 +245,10 @@ export function App() {
               <div className="flex items-center justify-between">
                 <span>Режим чтения (RU / Параллельно / EN)</span>
                 <kbd className="rounded border px-1.5 py-0.5 font-mono text-[10px]" style={{ borderColor: 'var(--border-strong)' }}>B</kbd>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Карточки мыслей и цитат</span>
+                <kbd className="rounded border px-1.5 py-0.5 font-mono text-[10px]" style={{ borderColor: 'var(--border-strong)' }}>N</kbd>
               </div>
               <div className="flex items-center justify-between">
                 <span>Скан оригинала книги</span>

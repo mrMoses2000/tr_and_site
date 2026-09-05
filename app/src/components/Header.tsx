@@ -7,6 +7,7 @@ import {
   Search,
   Sliders,
   Bookmark,
+  BookMarked,
   List,
 } from 'lucide-react';
 import type { ReaderSettings, ReaderMode, ReadingProgress } from '../domain/types';
@@ -20,11 +21,14 @@ interface HeaderProps {
   progress: ReadingProgress;
   settings: ReaderSettings;
   isBookmarked: boolean;
+  cardsCount?: number;
+  isCardsOpen?: boolean;
   onToggleBookmark: () => void;
   onOpenToc: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onToggleScan: () => void;
+  onToggleCards?: () => void;
   isScanOpen: boolean;
   onChangeMode: (mode: ReaderMode) => void;
 }
@@ -37,11 +41,14 @@ export const Header: FC<HeaderProps> = ({
   progress,
   settings,
   isBookmarked,
+  cardsCount = 0,
+  isCardsOpen = false,
   onToggleBookmark,
   onOpenToc,
   onOpenSearch,
   onOpenSettings,
   onToggleScan,
+  onToggleCards,
   isScanOpen,
   onChangeMode,
 }) => {
@@ -205,6 +212,34 @@ export const Header: FC<HeaderProps> = ({
             <ImageIcon className="h-4 w-4" />
             <span className="hidden lg:inline">Скан</span>
             <kbd className="hidden rounded px-1 text-[10px] font-mono opacity-60 md:inline">S</kbd>
+          </button>
+
+          {/* Research Thought Cards Trigger */}
+          <button
+            type="button"
+            onClick={onToggleCards}
+            title="Карточки мыслей и цитат [N]"
+            aria-label="Карточки мыслей"
+            className={`relative flex items-center space-x-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all active:scale-95 cursor-pointer ${
+              isCardsOpen ? 'ring-2' : 'hover:opacity-80'
+            }`}
+            style={{
+              backgroundColor: isCardsOpen ? 'var(--accent-soft)' : 'var(--bg-secondary)',
+              color: isCardsOpen ? 'var(--accent)' : 'var(--text-primary)',
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
+            <BookMarked className="h-4 w-4" />
+            <span className="hidden lg:inline">Карточки</span>
+            {cardsCount > 0 && (
+              <span
+                className="rounded-full px-1.5 py-0.2 text-[10px] font-bold text-white leading-none"
+                style={{ backgroundColor: 'var(--accent)' }}
+              >
+                {cardsCount}
+              </span>
+            )}
+            <kbd className="hidden rounded px-1 text-[10px] font-mono opacity-60 md:inline">N</kbd>
           </button>
 
           {/* Search Trigger */}
