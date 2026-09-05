@@ -184,23 +184,59 @@ def test_ast_preserves_image_blocks_and_normalization_provenance(tmp_path):
     pdf_path = tmp_path / "ast-evidence.pdf"
     doc = fitz.open()
     page = doc.new_page(width=595, height=842)
-    page.insert_text((50, 72), "арсе#\nнале")
+    # Keep this fixture font-independent: PyMuPDF's default PDF font can
+    # substitute unsupported Cyrillic glyphs with middle dots.  The ASCII
+    # equivalent still exercises the intended adjacent-span line break.
+    page.insert_text((50, 72), "arse#\nnale")
     page.insert_image(fitz.Rect(20, 100, 575, 800), stream=png)
     doc.save(str(pdf_path))
     doc.close()
 
     doc_in = fitz.open(str(pdf_path))
+    class SplitSpanPage:
+        """Model a damaged text layer's separator across adjacent spans."""
+
+        def __init__(self, delegate):
+            self._delegate = delegate
+
+        def get_text(self, *args, **kwargs):
+            result = self._delegate.get_text(*args, **kwargs)
+            if args and args[0] == "dict":
+                text_spans = [
+                    span
+                    for block in result.get("blocks", [])
+                    if block.get("type") == 0
+                    for line in block.get("lines", [])
+                    for span in line.get("spans", [])
+                ]
+                if len(text_spans) >= 2:
+                    text_spans[0]["text"] += "\n"
+            return result
+
+        def __getattr__(self, name):
+            return getattr(self._delegate, name)
+
+    split_page = SplitSpanPage(doc_in[0])
+    extracted_spans = [
+        span["text"]
+        for block in split_page.get_text("dict")["blocks"]
+        if block.get("type") == 0
+        for line in block.get("lines", [])
+        for span in line.get("spans", [])
+    ]
+    assert extracted_spans[:2] == ["arse#\n", "nale"]
     result = DocumentAstBuilder(
         slug="evidence",
         source_sha256="b" * 64,
-    ).build_page(doc_in[0], page_index=0, printed_page_label="12")
+    ).build_page(split_page, page_index=0, printed_page_label="12")
     doc_in.close()
 
     runs = [run for block in result.blocks if hasattr(block, "runs") for run in block.runs]
     assert runs
+    assert len(runs) >= 2
     assert all(run.source.sourceSha256 == "b" * 64 for run in runs)
     assert all(run.source.bbox for run in runs)
-    assert "".join(run.text for run in runs) == "арсенале"
+    assert "".join(run.text for run in runs) == "arsenale"
     figures = [block for block in result.blocks if isinstance(block, FigureBlock)]
     assert figures
     assert figures[0].source is not None
