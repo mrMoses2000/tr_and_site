@@ -298,7 +298,7 @@ def test_awaiting_mode_job_is_invisible_until_mode_is_selected(tmp_path):
 
 
 def test_worker_cancels_processor_when_lease_renewal_fails(tmp_path):
-    from ingestion_service.jobs.repository import JobRepository, StaleLeaseError
+    from ingestion_service.jobs.repository import JobRepository, JobState, StaleLeaseError
     from ingestion_service.jobs.worker import IngestionWorker
 
     repo = JobRepository(str(tmp_path / "lease-cancel.db"))
