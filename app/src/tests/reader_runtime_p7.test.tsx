@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useEffect } from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import App from '../App';
 import { SearchDialog } from '../components/SearchDialog';
 import type { BookManifest, PageData } from '../domain/types';
@@ -134,10 +134,11 @@ describe('P7/P8 reader runtime contracts', () => {
     window.location.hash = '#book=fixture-book&page=1&fn=7';
     const loader = vi.fn(async () => fixture);
     render(<App readerOptions={{ loadManifest: loader }} />);
-    await waitFor(() => expect(screen.getByText('Сноска fixture')).toBeInTheDocument());
+    const dialog = await screen.findByRole('dialog', { name: 'Сноска 7' });
+    expect(within(dialog).getByText('Сноска fixture', { selector: 'p' })).toBeInTheDocument();
     await waitFor(() => expect(document.querySelector('[data-footnote-id="7"]')).toBe(document.activeElement));
-    fireEvent.click(screen.getByTitle(/Закрыть/));
-    await waitFor(() => expect(screen.queryByText('Сноска fixture')).not.toBeInTheDocument());
+    fireEvent.click(within(dialog).getByTitle(/Закрыть/));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Сноска 7' })).not.toBeInTheDocument());
     expect(window.location.hash).not.toContain('fn=7');
   });
 
@@ -159,9 +160,10 @@ describe('P7/P8 reader runtime contracts', () => {
     const footnoteButton = document.querySelector('[data-footnote-id="7"]');
     expect(footnoteButton).not.toBeNull();
     fireEvent.click(footnoteButton!);
-    expect(await screen.findByText('Сноска fixture')).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog', { name: 'Сноска 7' });
+    expect(within(dialog).getByText('Сноска fixture', { selector: 'p' })).toBeInTheDocument();
     await hashChange;
-    expect(screen.getByText('Сноска fixture')).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog', { name: 'Сноска 7' })).getByText('Сноска fixture', { selector: 'p' })).toBeInTheDocument();
   });
 
   it('passes paragraph and footnote anchors when selecting search results', async () => {

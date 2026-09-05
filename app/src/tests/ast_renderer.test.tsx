@@ -69,7 +69,7 @@ describe('P10 AST renderer', () => {
     expect(screen.getByRole('table')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Схема' })).toBeInTheDocument();
     expect(screen.getByText('Текст сноски')).toBeInTheDocument();
-    expect(screen.getByRole('separator', { name: /страница 55/i })).toBeInTheDocument();
+    expect(screen.getByRole('separator')).toHaveAttribute('aria-label', 'Переход к странице 55');
 
     for (const block of blocks) {
       expect(document.querySelector(`[data-block-id="${block.id}"]`)).toBeInTheDocument();

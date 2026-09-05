@@ -25,6 +25,9 @@ export const FootnotePopup: FC<FootnotePopupProps> = ({ footnote, onClose }) => 
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Сноска ${footnote.id}`}
         className="w-full max-w-lg rounded-2xl border p-5 shadow-2xl transition-all sm:p-6"
         style={{
           backgroundColor: 'var(--bg-card)',
