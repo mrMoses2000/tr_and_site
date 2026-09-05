@@ -221,7 +221,9 @@ class ProductionReleaseBuilder:
         except ReleaseBuildError:
             raise
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            raise ReleaseBuildError(f"Failed to build release {identity.release_id}") from exc
+            raise ReleaseBuildError(
+                f"Failed to build release {identity.release_id}: {exc}"
+            ) from exc
         finally:
             if workspace is not None:
                 shutil.rmtree(workspace, ignore_errors=True)
