@@ -1,13 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   searchPagesV2,
-  createDebouncedSearchWorker,
+  createDebouncedSearchWorker as createLegacyDebouncedSearchWorker,
   type SearchOptions,
 } from '../domain/search/searchEngineV2';
 import {
   LazyPageRepository,
   UnavailableChunkError,
   type PageChunkLoader,
+  createIndexedPageLoader,
 } from '../domain/repository/pageRepository';
 import type { PageData } from '../domain/types';
 import {
@@ -15,6 +16,7 @@ import {
   UnknownBookError,
   BookManifestLoadCancelledError,
 } from '../data/library/libraryRegistry';
+import { createDebouncedSearchWorker as createSearchWorkerExecutor } from '../domain/search/searchWorkerClient';
 
 describe('Phase P8: Search Engine V2', () => {
   const samplePages: PageData[] = [
@@ -92,7 +94,7 @@ describe('Phase P8: Search Engine V2', () => {
   });
 
   it('supports cancellation and debouncing for rapid successive queries', async () => {
-    const searcher = createDebouncedSearchWorker(samplePages, 50);
+    const searcher = createLegacyDebouncedSearchWorker(samplePages, 50);
 
     const promise1 = searcher.search('герм');
     promise1.catch(() => {});
@@ -107,6 +109,90 @@ describe('Phase P8: Search Engine V2', () => {
     // Earlier searches should be rejected as cancelled
     await expect(promise1).rejects.toThrow(/cancelled/i);
     await expect(promise2).rejects.toThrow(/cancelled/i);
+  });
+
+  it('uses worker transport when a search index url is available', async () => {
+    const postedMessages: Array<Record<string, unknown>> = [];
+
+    class MockWorker {
+      private readonly listeners = new Set<(event: MessageEvent) => void>();
+
+      constructor(public scriptURL: URL, public options: unknown) {}
+
+      addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+        if (type !== 'message' || typeof listener !== 'function') return;
+        this.listeners.add(listener as (event: MessageEvent) => void);
+      }
+
+      removeEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+        if (type !== 'message' || typeof listener !== 'function') return;
+        this.listeners.delete(listener as (event: MessageEvent) => void);
+      }
+
+      postMessage(message: Record<string, unknown>) {
+        postedMessages.push(message);
+        if (message.type === 'init') {
+          queueMicrotask(() => {
+            this.emit({ type: 'ready', bookSlug: 'sample-book', releaseId: 'rel-sample-book' });
+          });
+          return;
+        }
+        if (message.type === 'search') {
+          queueMicrotask(() => {
+            this.emit({
+              type: 'result',
+              requestId: message.requestId,
+              matches: [
+                {
+                  pageNumber: 10,
+                  paragraphId: 'p-10-1',
+                  targetType: 'paragraph',
+                  language: 'ru',
+                  chapterTitle: 'Глава 1',
+                  offset: 0,
+                  snippetPrefix: '',
+                  snippetMatch: 'герменевтика',
+                  snippetSuffix: ' …',
+                },
+              ],
+              totalMatches: 1,
+              truncated: false,
+            });
+          });
+        }
+      }
+
+      terminate() {}
+
+      private emit(data: Record<string, unknown>) {
+        for (const listener of this.listeners) {
+          listener({ data } as MessageEvent);
+        }
+      }
+    }
+
+    vi.stubGlobal('Worker', MockWorker as unknown as typeof Worker);
+
+    try {
+      const searcher = createSearchWorkerExecutor(
+        { pages: samplePages, searchIndexUrl: 'https://example.test/search-index.json' },
+        0,
+      );
+      const result = await searcher.search('герменевтика', { maxResults: 10 });
+
+      expect(result.query).toBe('герменевтика');
+      expect(result.matches).toHaveLength(1);
+      expect(result.totalMatches).toBe(1);
+      expect(postedMessages[0]).toMatchObject({
+        type: 'init',
+        searchIndexUrl: 'https://example.test/search-index.json',
+      });
+      expect(postedMessages.some((message) => message.type === 'search')).toBe(true);
+
+      searcher.cancel();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -188,5 +274,43 @@ describe('Phase P8: Lazy Manifests & Page Repository', () => {
     expect(loadedPages).toContain(5);
     expect(loadedPages).toContain(4);
     expect(loadedPages).toContain(6);
+  });
+
+  it('loads indexed pages from a pages index and caches chunk fetches', async () => {
+    const pagesIndexUrl = 'https://example.test/books/book/releases/rel-book/pages-index.json';
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === pagesIndexUrl) {
+        return new Response(JSON.stringify({
+          schemaVersion: '1.0',
+          bookSlug: 'book',
+          releaseId: 'rel-book',
+          pageRange: { start: 1, end: 2 },
+          searchIndexUrl: 'https://example.test/books/book/releases/rel-book/search-index.json',
+          pages: [
+            { pageNumber: 1, chunkUrl: 'pages/page-1.json' },
+            { pageNumber: 2, chunkUrl: 'pages/page-2.json' },
+          ],
+        }), { status: 200 });
+      }
+      if (url === 'https://example.test/books/book/releases/rel-book/pages/page-1.json') {
+        return new Response(JSON.stringify({
+          pageNumber: 1,
+          chapterTitle: 'Chapter 1',
+          paragraphs: [{ id: 'p-1', ru: 'Текст страницы 1', en: 'Page one text' }],
+          footnotes: [],
+          imageSrc: '/scans/page_1.webp',
+        }), { status: 200 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    const loader = createIndexedPageLoader(pagesIndexUrl, fetchMock as unknown as typeof fetch);
+
+    const first = await loader('book', 1);
+    const second = await loader('book', 1);
+
+    expect(first.pageNumber).toBe(1);
+    expect(second.pageNumber).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

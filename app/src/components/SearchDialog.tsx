@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, type FC } from 'react';
 import { Search, X, ArrowRight, CornerDownLeft } from 'lucide-react';
-import { createDebouncedSearchExecutor, type SearchMatchV2 } from '../domain/search/searchEngineV2';
+import { type SearchMatchV2 } from '../domain/search/searchEngineV2';
+import { createDebouncedSearchWorker } from '../domain/search/searchWorkerClient';
 import type { PageData } from '../domain/types';
 import type { ReaderLocationV2 } from '../domain/storage/storageV2';
 
@@ -8,6 +9,7 @@ interface SearchDialogProps {
   isOpen: boolean;
   onClose: () => void;
   pages: PageData[];
+  searchIndexUrl?: string;
   onSelectLocation?: (location: Partial<ReaderLocationV2>) => void;
   onSelectPage?: (page: number, blockId?: string) => void;
 }
@@ -16,6 +18,7 @@ export const SearchDialog: FC<SearchDialogProps> = ({
   isOpen,
   onClose,
   pages,
+  searchIndexUrl,
   onSelectLocation,
   onSelectPage,
 }) => {
@@ -26,7 +29,10 @@ export const SearchDialog: FC<SearchDialogProps> = ({
   const [searchState, setSearchState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [searchError, setSearchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const searchExecutor = useMemo(() => createDebouncedSearchExecutor(pages, 200), [pages]);
+  const searchExecutor = useMemo(
+    () => createDebouncedSearchWorker({ pages, searchIndexUrl }, 200),
+    [pages, searchIndexUrl],
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -129,7 +135,7 @@ export const SearchDialog: FC<SearchDialogProps> = ({
         </div>
 
         {/* Results List */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {searchState === 'loading' && (
             <div className="py-10 text-center text-xs opacity-60" role="status">Поиск…</div>
           )}
@@ -146,9 +152,16 @@ export const SearchDialog: FC<SearchDialogProps> = ({
             </div>
           )}
 
+          {searchState === 'success' && query.trim().length >= 2 && results.length > 0 && (
+            <div className="px-1 pb-1 text-[11px] opacity-60">
+              Найдено {totalMatches} совпадений
+              {isTruncated ? ' · показаны первые результаты' : ''}
+            </div>
+          )}
+
           {query.trim().length < 2 && (
             <div className="py-10 text-center text-xs opacity-50">
-              Введите не менее 2 символов для поиска по всем {pages.length} страницам книги и сноскам.
+              Введите не менее 2 символов для поиска {searchIndexUrl ? 'по книге и сноскам' : `по всем ${pages.length} страницам книги и сноскам`}.
             </div>
           )}
 

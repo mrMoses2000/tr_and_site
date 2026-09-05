@@ -1,5 +1,6 @@
 {
-  "schemaVersion": "1",
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-09-05T13:00:00Z",
   "books": [
     {
       "slug": "schreiner-ntt",
@@ -15,7 +16,13 @@
       "titleRu": "Герменевтическая спираль",
       "author": "Grant R. Osborne",
       "authorRu": "Грант Р. Осборн",
-      "totalPages": 736
+      "totalPages": 736,
+      "releaseId": "rel-ozborn-germenevticheskaya-spiral-66f63cc7bb9a",
+      "manifestUrl": "/books/ozborn-germenevticheskaya-spiral/releases/rel-ozborn-germenevticheskaya-spiral-66f63cc7bb9a/manifest.json",
+      "pagesIndexUrl": "/books/ozborn-germenevticheskaya-spiral/releases/rel-ozborn-germenevticheskaya-spiral-66f63cc7bb9a/pages-index.json",
+      "searchIndexUrl": "/books/ozborn-germenevticheskaya-spiral/releases/rel-ozborn-germenevticheskaya-spiral-66f63cc7bb9a/search-index.json",
+      "pageChunkPattern": "/books/ozborn-germenevticheskaya-spiral/releases/rel-ozborn-germenevticheskaya-spiral-66f63cc7bb9a/pages/page-{page}.json",
+      "scanPattern": "/scans/ozborn-germenevticheskaya-spiral/page_{page}.webp"
     }
   ]
 }

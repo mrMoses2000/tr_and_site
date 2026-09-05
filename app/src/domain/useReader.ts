@@ -2,12 +2,14 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   bookSummaries,
   getAllBooksSummary,
+  getBookSummary,
   loadBookManifest,
+  loadRuntimeCatalog,
   registeredBooks,
   type BookManifestLoader,
 } from '../data/library/libraryRegistry';
 import { clampPage, getNextPage, getPrevPage, canGoNext, canGoPrev } from './pagination';
-import { calculateProgress } from './progress';
+import { calculateProgressFromBounds } from './progress';
 import { defaultStorage } from '../infrastructure/storage';
 import type { ReaderSettings, ReaderMode, PageData, FootnotePair, ResearchCard, BookManifest } from './types';
 import { createResearchCard, type CreateCardInput } from './cards';
@@ -19,13 +21,14 @@ import {
 } from './router';
 import type { ReaderLocationV2 } from './storage/storageV2';
 import { extractBookCitationMetadata } from './citation';
+import { createManifestPageRepository } from './repository/pageRepository';
 
 const DEFAULT_BOOK_SLUG = 'schreiner-ntt';
 
 const boundsResolver: ManifestBoundsResolver = (slug) => {
   const loaded = registeredBooks[slug];
   if (loaded) return { startPage: loaded.startPage, endPage: loaded.endPage };
-  const summary = bookSummaries[slug];
+  const summary = getBookSummary(slug) ?? bookSummaries[slug];
   if (summary) return { startPage: 1, endPage: summary.totalPages };
   return null;
 };
@@ -74,9 +77,17 @@ export function useReader(options: UseReaderOptions = {}) {
     () => (registeredBooks[initialLoc.bookSlug] ? 'ready' : 'loading'),
   );
   const [manifestError, setManifestError] = useState<Error | null>(null);
+  const [loadedPageData, setLoadedPageData] = useState<PageData | null>(
+    () => registeredBooks[initialLoc.bookSlug]?.pages.find((page) => page.pageNumber === initialLoc.pageNumber) ?? null,
+  );
+  const [currentPageLoadState, setCurrentPageLoadState] = useState<'loading' | 'ready' | 'error'>(
+    () => (registeredBooks[initialLoc.bookSlug]?.pages.some((page) => page.pageNumber === initialLoc.pageNumber) ? 'ready' : 'loading'),
+  );
+  const [currentPageError, setCurrentPageError] = useState<Error | null>(null);
   const pendingPageByBook = useRef<Record<string, number>>({
     [initialLoc.bookSlug]: initialLoc.pageNumber,
   });
+  const [catalogRevision, setCatalogRevision] = useState(0);
 
   const currentBookSlug = location.bookSlug;
   const currentPage = location.pageNumber;
@@ -155,6 +166,18 @@ export function useReader(options: UseReaderOptions = {}) {
   }, [currentBookSlug, manifestLoader]);
 
   useEffect(() => {
+    let active = true;
+    void loadRuntimeCatalog().then(() => {
+      if (active) {
+        setCatalogRevision((previous) => previous + 1);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     document.documentElement.setAttribute('data-theme', settings.theme);
   }, [settings.theme]);
 
@@ -164,14 +187,65 @@ export function useReader(options: UseReaderOptions = {}) {
   }, [currentBookSlug]);
 
   useEffect(() => {
-    if (!manifest || location.footnoteId === undefined) {
+    if (!loadedPageData || location.footnoteId === undefined) {
       setActiveFootnoteState(null);
       return;
     }
-    const page = manifest.pages.find((item) => item.pageNumber === location.pageNumber);
-    const footnote = page?.footnotes.find((item) => String(item.id) === String(location.footnoteId));
+    const footnote = loadedPageData.footnotes.find((item) => String(item.id) === String(location.footnoteId));
     setActiveFootnoteState(footnote ?? null);
-  }, [manifest, location.pageNumber, location.footnoteId]);
+  }, [loadedPageData, location.footnoteId]);
+
+  const pageRepository = useMemo(() => {
+    if (!manifest) return null;
+    return createManifestPageRepository(manifest);
+  }, [manifest?.slug, manifest?.releaseId, manifest?.pagesIndexUrl, manifest?.pages.length]);
+
+  useEffect(() => {
+    if (!manifest) {
+      setLoadedPageData(null);
+      setCurrentPageLoadState('loading');
+      setCurrentPageError(null);
+      return;
+    }
+
+    const cachedPage = manifest.pages.find((page) => page.pageNumber === currentPage);
+    if (cachedPage) {
+      setLoadedPageData(cachedPage);
+      setCurrentPageLoadState('ready');
+      setCurrentPageError(null);
+      return;
+    }
+
+    if (!pageRepository) {
+      setLoadedPageData(null);
+      setCurrentPageLoadState('error');
+      setCurrentPageError(new Error(`Page repository unavailable for ${currentBookSlug}`));
+      return;
+    }
+
+    let active = true;
+    setCurrentPageLoadState('loading');
+    setCurrentPageError(null);
+    setLoadedPageData(null);
+
+    void pageRepository.getPage(currentBookSlug, currentPage)
+      .then((page) => {
+        if (!active) return;
+        setLoadedPageData(page);
+        setCurrentPageLoadState('ready');
+        pageRepository.prefetchAdjacent(currentBookSlug, currentPage, manifest.startPage, manifest.endPage);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setLoadedPageData(null);
+        setCurrentPageLoadState('error');
+        setCurrentPageError(error instanceof Error ? error : new Error(String(error)));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [currentBookSlug, currentPage, manifest, pageRepository]);
 
   const updateSettings = useCallback((updater: Partial<ReaderSettings>) => {
     setSettings((previous) => {
@@ -320,12 +394,14 @@ export function useReader(options: UseReaderOptions = {}) {
     setIsScanOpen(location.view === 'scan');
   }, [location.view]);
 
-  const currentPageData = useMemo<PageData | null>(() => {
-    if (!manifest) return null;
-    return manifest.pages.find((page) => page.pageNumber === currentPage) ?? null;
-  }, [currentPage, manifest]);
+  const availableBooks = useMemo(() => getAllBooksSummary(), [catalogRevision]);
   const progress = useMemo(
-    () => calculateProgress(currentPage, manifest?.pages ?? []),
+    () => calculateProgressFromBounds(
+      currentPage,
+      manifest?.startPage ?? currentPage,
+      manifest?.endPage ?? currentPage,
+      manifest?.totalPages ?? 0,
+    ),
     [currentPage, manifest],
   );
 
@@ -335,7 +411,7 @@ export function useReader(options: UseReaderOptions = {}) {
   };
 
   useEffect(() => {
-    if (!manifest || (!location.blockId && location.footnoteId === undefined)) return;
+    if (!loadedPageData || (!location.blockId && location.footnoteId === undefined)) return;
     const targetSelector = location.footnoteId !== undefined
       ? `[data-footnote-id="${escapeCssAttribute(String(location.footnoteId))}"]`
       : `[data-paragraph-id="${escapeCssAttribute(location.blockId ?? '')}"]`;
@@ -343,7 +419,7 @@ export function useReader(options: UseReaderOptions = {}) {
     if (!target) return;
     target.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
     target.focus({ preventScroll: true });
-  }, [location.blockId, location.footnoteId, manifest, currentPageData, settings.mode]);
+  }, [location.blockId, location.footnoteId, loadedPageData, settings.mode]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -376,9 +452,11 @@ export function useReader(options: UseReaderOptions = {}) {
     location,
     currentBookSlug,
     selectBook,
-    availableBooks: getAllBooksSummary(),
+    availableBooks,
     currentPage,
-    currentPageData,
+    currentPageData: loadedPageData,
+    currentPageLoadState,
+    currentPageError,
     progress,
     settings,
     bookmarks,

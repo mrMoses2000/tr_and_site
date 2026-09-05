@@ -13,9 +13,20 @@ export interface SearchMatchV2 {
   snippetSuffix: string;
 }
 
+export interface SearchCorpusEntry {
+  pageNumber: number;
+  paragraphId: string;
+  targetType: 'paragraph' | 'footnote' | 'heading';
+  footnoteId?: number;
+  language: 'ru' | 'en' | string;
+  chapterTitle?: string;
+  text: string;
+}
+
 export interface SearchOptions {
   maxResults?: number;
   snippetRadius?: number;
+  isCancelled?: () => boolean;
 }
 
 export interface SearchResultDetails {
@@ -26,146 +37,71 @@ export interface SearchResultDetails {
 
 export type SearchOutput = SearchMatchV2[] & SearchResultDetails;
 
-/**
- * Pure search algorithm returning all repeated matches across pages and footnotes.
- */
-export function searchPagesV2(
-  pages: PageData[],
+function emptySearchOutput(): SearchOutput {
+  const emptyResult = [] as unknown as SearchOutput;
+  emptyResult.matches = [];
+  emptyResult.totalMatches = 0;
+  emptyResult.truncated = false;
+  return emptyResult;
+}
+
+function pushMatch(
+  matches: SearchMatchV2[],
+  record: SearchCorpusEntry,
+  offset: number,
+  radius: number,
+  queryLen: number,
+): void {
+  const start = Math.max(0, offset - radius);
+  const matchEnd = offset + queryLen;
+  const end = Math.min(record.text.length, matchEnd + radius);
+  matches.push({
+    pageNumber: record.pageNumber,
+    paragraphId: record.paragraphId,
+    targetType: record.targetType,
+    footnoteId: record.footnoteId,
+    language: record.language,
+    chapterTitle: record.chapterTitle,
+    offset,
+    snippetPrefix: (start > 0 ? '…' : '') + record.text.slice(start, offset),
+    snippetMatch: record.text.slice(offset, matchEnd),
+    snippetSuffix: record.text.slice(matchEnd, end) + (end < record.text.length ? '…' : ''),
+  });
+}
+
+export function searchCorpusV2(
+  corpus: SearchCorpusEntry[],
   query: string,
-  options?: SearchOptions
+  options?: SearchOptions,
 ): SearchOutput {
   const trimmed = query.trim();
   const maxResults = options?.maxResults;
   const radius = options?.snippetRadius ?? 40;
 
-  const matches: SearchMatchV2[] = [];
-  let totalMatches = 0;
-
   if (!trimmed || trimmed.length < 2) {
-    const emptyResult = [] as any;
-    emptyResult.matches = [];
-    emptyResult.totalMatches = 0;
-    emptyResult.truncated = false;
-    return emptyResult;
+    return emptySearchOutput();
   }
 
+  const matches: SearchMatchV2[] = [];
+  let totalMatches = 0;
   const lowerQuery = trimmed.toLowerCase();
   const queryLen = trimmed.length;
 
-  for (const page of pages) {
-    // 1. Paragraphs
-    for (const para of page.paragraphs) {
-      // Russian
-      if (para.ru) {
-        const ruLower = para.ru.toLowerCase();
-        let ruPos = 0;
-        while ((ruPos = ruLower.indexOf(lowerQuery, ruPos)) !== -1) {
-          totalMatches++;
-          if (!maxResults || matches.length < maxResults) {
-            const start = Math.max(0, ruPos - radius);
-            const matchEnd = ruPos + queryLen;
-            const end = Math.min(para.ru.length, matchEnd + radius);
-
-            matches.push({
-              pageNumber: page.pageNumber,
-              paragraphId: para.id,
-              targetType: 'paragraph',
-              language: 'ru',
-              chapterTitle: page.chapterTitle,
-              offset: ruPos,
-              snippetPrefix: (start > 0 ? '…' : '') + para.ru.slice(start, ruPos),
-              snippetMatch: para.ru.slice(ruPos, matchEnd),
-              snippetSuffix: para.ru.slice(matchEnd, end) + (end < para.ru.length ? '…' : ''),
-            });
-          }
-          ruPos += queryLen;
-        }
-      }
-
-      // English
-      if (para.en) {
-        const enLower = para.en.toLowerCase();
-        let enPos = 0;
-        while ((enPos = enLower.indexOf(lowerQuery, enPos)) !== -1) {
-          totalMatches++;
-          if (!maxResults || matches.length < maxResults) {
-            const start = Math.max(0, enPos - radius);
-            const matchEnd = enPos + queryLen;
-            const end = Math.min(para.en.length, matchEnd + radius);
-
-            matches.push({
-              pageNumber: page.pageNumber,
-              paragraphId: para.id,
-              targetType: 'paragraph',
-              language: 'en',
-              chapterTitle: page.chapterTitle,
-              offset: enPos,
-              snippetPrefix: (start > 0 ? '…' : '') + para.en.slice(start, enPos),
-              snippetMatch: para.en.slice(enPos, matchEnd),
-              snippetSuffix: para.en.slice(matchEnd, end) + (end < para.en.length ? '…' : ''),
-            });
-          }
-          enPos += queryLen;
-        }
-      }
+  for (let recordIndex = 0; recordIndex < corpus.length; recordIndex += 1) {
+    if (options?.isCancelled?.()) {
+      break;
     }
-
-    // 2. Footnotes
-    for (const fn of page.footnotes || []) {
-      // Russian
-      if (fn.textRu) {
-        const ruLower = fn.textRu.toLowerCase();
-        let ruPos = 0;
-        while ((ruPos = ruLower.indexOf(lowerQuery, ruPos)) !== -1) {
-          totalMatches++;
-          if (!maxResults || matches.length < maxResults) {
-            const start = Math.max(0, ruPos - radius);
-            const matchEnd = ruPos + queryLen;
-            const end = Math.min(fn.textRu.length, matchEnd + radius);
-
-            matches.push({
-              pageNumber: page.pageNumber,
-              paragraphId: `fn-${fn.id}`,
-              targetType: 'footnote',
-              footnoteId: fn.id,
-              language: 'ru',
-              chapterTitle: `Сноска ${fn.id}`,
-              offset: ruPos,
-              snippetPrefix: (start > 0 ? '…' : '') + fn.textRu.slice(start, ruPos),
-              snippetMatch: fn.textRu.slice(ruPos, matchEnd),
-              snippetSuffix: fn.textRu.slice(matchEnd, end) + (end < fn.textRu.length ? '…' : ''),
-            });
-          }
-          ruPos += queryLen;
-        }
+    const record = corpus[recordIndex];
+    const haystack = record.text.toLowerCase();
+    let offset = 0;
+    while ((offset = haystack.indexOf(lowerQuery, offset)) !== -1) {
+      totalMatches += 1;
+      if (!maxResults || matches.length < maxResults) {
+        pushMatch(matches, record, offset, radius, queryLen);
       }
-
-      // English
-      if (fn.textEn) {
-        const enLower = fn.textEn.toLowerCase();
-        let enPos = 0;
-        while ((enPos = enLower.indexOf(lowerQuery, enPos)) !== -1) {
-          totalMatches++;
-          if (!maxResults || matches.length < maxResults) {
-            const start = Math.max(0, enPos - radius);
-            const matchEnd = enPos + queryLen;
-            const end = Math.min(fn.textEn.length, matchEnd + radius);
-
-            matches.push({
-              pageNumber: page.pageNumber,
-              paragraphId: `fn-${fn.id}`,
-              targetType: 'footnote',
-              footnoteId: fn.id,
-              language: 'en',
-              chapterTitle: `Footnote ${fn.id}`,
-              offset: enPos,
-              snippetPrefix: (start > 0 ? '…' : '') + fn.textEn.slice(start, enPos),
-              snippetMatch: fn.textEn.slice(enPos, matchEnd),
-              snippetSuffix: fn.textEn.slice(matchEnd, end) + (end < fn.textEn.length ? '…' : ''),
-            });
-          }
-          enPos += queryLen;
-        }
+      offset += queryLen;
+      if (options?.isCancelled?.()) {
+        break;
       }
     }
   }
@@ -174,8 +110,67 @@ export function searchPagesV2(
   result.matches = matches;
   result.totalMatches = totalMatches;
   result.truncated = maxResults !== undefined && totalMatches > maxResults;
-
   return result;
+}
+
+export function searchPagesV2(
+  pages: PageData[],
+  query: string,
+  options?: SearchOptions,
+): SearchOutput {
+  const corpus: SearchCorpusEntry[] = [];
+
+  for (const page of pages) {
+    for (const para of page.paragraphs) {
+      if (para.ru) {
+        corpus.push({
+          pageNumber: page.pageNumber,
+          paragraphId: para.id,
+          targetType: 'paragraph',
+          language: 'ru',
+          chapterTitle: page.chapterTitle,
+          text: para.ru,
+        });
+      }
+      if (para.en) {
+        corpus.push({
+          pageNumber: page.pageNumber,
+          paragraphId: para.id,
+          targetType: 'paragraph',
+          language: 'en',
+          chapterTitle: page.chapterTitle,
+          text: para.en,
+        });
+      }
+    }
+
+    for (const fn of page.footnotes || []) {
+      if (fn.textRu) {
+        corpus.push({
+          pageNumber: page.pageNumber,
+          paragraphId: `fn-${fn.id}`,
+          targetType: 'footnote',
+          footnoteId: fn.id,
+          language: 'ru',
+          chapterTitle: `Сноска ${fn.id}`,
+          text: fn.textRu,
+        });
+      }
+      if (fn.textEn) {
+        corpus.push({
+          pageNumber: page.pageNumber,
+          paragraphId: `fn-${fn.id}`,
+          targetType: 'footnote',
+          footnoteId: fn.id,
+          language: 'en',
+          chapterTitle: `Footnote ${fn.id}`,
+          text: fn.textEn,
+        });
+      }
+    }
+  }
+
+  return searchCorpusV2(corpus, query, options);
 }
 
 /** Current compatibility mode: synchronous main-thread scan over a loaded
@@ -190,14 +185,13 @@ export interface DebouncedSearchExecutor {
 
 export function createDebouncedSearchExecutor(
   pages: PageData[],
-  debounceMs = 250
+  debounceMs = 250,
 ): DebouncedSearchExecutor {
-  let timer: any = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   let activeReject: ((reason: any) => void) | null = null;
 
   return {
     search: (query: string, options?: SearchOptions) => {
-      // Cancel previous in-flight promise
       if (activeReject) {
         activeReject(new Error('Search cancelled by newer query'));
         activeReject = null;

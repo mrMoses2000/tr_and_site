@@ -29,6 +29,8 @@ export function App({ readerOptions }: AppProps = {}) {
     availableBooks,
     currentPage,
     currentPageData,
+    currentPageLoadState,
+    currentPageError,
     progress,
     settings,
     bookmarks,
@@ -184,6 +186,20 @@ export function App({ readerOptions }: AppProps = {}) {
     return (
       <main role="alert">
         Не удалось загрузить книгу: {manifestError?.message ?? 'неизвестная ошибка'}
+      </main>
+    );
+  }
+  if (currentPageLoadState === 'loading' && !currentPageData) {
+    return (
+      <main role="status" aria-live="polite">
+        Загрузка страницы {currentPage}…
+      </main>
+    );
+  }
+  if (currentPageLoadState === 'error' && !currentPageData) {
+    return (
+      <main role="alert">
+        Не удалось загрузить страницу {currentPage}: {currentPageError?.message ?? 'неизвестная ошибка'}
       </main>
     );
   }
@@ -394,6 +410,7 @@ export function App({ readerOptions }: AppProps = {}) {
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         pages={manifest.pages}
+        searchIndexUrl={manifest.searchIndexUrl}
         onSelectLocation={(target) => navigateLocation(target)}
       />
 

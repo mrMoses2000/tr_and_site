@@ -58,6 +58,7 @@ export interface TocItem {
 
 export interface BookManifest {
   slug?: string;
+  releaseId?: string;
   title: string;
   titleRu: string;
   subtitle?: string;
@@ -68,6 +69,10 @@ export interface BookManifest {
   startPage: number;
   endPage: number;
   totalPages: number;
+  pagesIndexUrl?: string;
+  searchIndexUrl?: string;
+  pageChunkPattern?: string;
+  manifestUrl?: string;
   tableOfContents: TocItem[];
   pages: PageData[];
 }
