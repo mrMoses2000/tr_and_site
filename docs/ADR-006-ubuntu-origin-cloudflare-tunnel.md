@@ -21,6 +21,9 @@ receive router port-forwarding.
 - A named Cloudflare Tunnel publishes one owner-approved hostname to Caddy.
 - Tunnel UUID and credential JSON are provisioned on Ubuntu under `/etc/logos`
   and are never stored in Git.
+- Provisioning has an explicit `--origin-only` mode for a loopback-only Caddy
+  install/check. Full Tunnel configuration requires an owner-supplied canonical
+  UUID, approved FQDN and pre-existing credential JSON.
 - `logos-origin` and `logos-cloudflared` run as dedicated service identities.
 - Releases remain immutable and are switched only by the existing publisher;
   bootstrap does not alter the active checkout or pointer.

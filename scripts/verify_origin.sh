@@ -6,6 +6,7 @@ CONFIG_DIR="/etc/logos"
 ORIGIN_PORT="8080"
 LOW_WATERMARK_MIB="${LOGOS_LOW_WATERMARK_MIB:-10240}"
 PROBE=0
+ORIGIN_ONLY=0
 
 die() { printf 'verify_origin: %s\n' "$*" >&2; exit 1; }
 while (($#)); do
@@ -15,7 +16,8 @@ while (($#)); do
     --origin-port) [[ $# -ge 2 ]] || die "--origin-port needs a value"; ORIGIN_PORT="$2"; shift 2 ;;
     --low-watermark-mib) [[ $# -ge 2 ]] || die "--low-watermark-mib needs a value"; LOW_WATERMARK_MIB="$2"; shift 2 ;;
     --probe) PROBE=1; shift ;;
-    -h|--help) printf '%s\n' 'verify_origin.sh [--root PATH] [--config-dir PATH] [--origin-port PORT] [--low-watermark-mib MIB] [--probe]'; exit 0 ;;
+    --origin-only) ORIGIN_ONLY=1; shift ;;
+    -h|--help) printf '%s\n' 'verify_origin.sh [--origin-only] [--root PATH] [--config-dir PATH] [--origin-port PORT] [--low-watermark-mib MIB] [--probe]'; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
 done
@@ -47,9 +49,9 @@ if command -v caddy >/dev/null && [[ -f "$CONFIG_DIR/Caddyfile" ]]; then
 else
   printf 'warning: caddy/config unavailable; syntax validation skipped\n' >&2
 fi
-if command -v cloudflared >/dev/null && [[ -f "$CONFIG_DIR/cloudflared/config.yml" ]]; then
+if (( ! ORIGIN_ONLY )) && command -v cloudflared >/dev/null && [[ -f "$CONFIG_DIR/cloudflared/config.yml" ]]; then
   cloudflared tunnel ingress validate --config "$CONFIG_DIR/cloudflared/config.yml"
-else
+elif (( ! ORIGIN_ONLY )); then
   printf 'warning: cloudflared/config unavailable; ingress validation skipped\n' >&2
 fi
 

@@ -87,7 +87,7 @@ def test_bootstrap_check_mode_accepts_safe_inputs_and_rejects_injection() -> Non
     valid = subprocess.run(
         [
             "bash", str(script), "--check", "--root", "/srv/logos",
-            "--config-dir", "/etc/logos", "--tunnel-uuid", "0123456789abcdef",
+            "--config-dir", "/etc/logos", "--tunnel-uuid", "01234567-89ab-cdef-0123-456789abcdef",
             "--hostname", "reader.example.org", "--writer-user", "moses",
         ],
         check=False,
@@ -98,7 +98,7 @@ def test_bootstrap_check_mode_accepts_safe_inputs_and_rejects_injection() -> Non
     invalid = subprocess.run(
         [
             "bash", str(script), "--check", "--root", "/srv/logos;touch /tmp/pwned",
-            "--config-dir", "/etc/logos", "--tunnel-uuid", "0123456789abcdef",
+            "--config-dir", "/etc/logos", "--tunnel-uuid", "01234567-89ab-cdef-0123-456789abcdef",
             "--hostname", "reader.example.org",
         ],
         check=False,
@@ -106,6 +106,50 @@ def test_bootstrap_check_mode_accepts_safe_inputs_and_rejects_injection() -> Non
         text=True,
     )
     assert invalid.returncode != 0
+
+
+def test_bootstrap_origin_only_needs_no_tunnel_identity() -> None:
+    script = ROOT / "scripts/bootstrap_origin.sh"
+    result = subprocess.run(
+        [
+            "bash", str(script), "--check", "--origin-only", "--root", "/srv/logos",
+            "--config-dir", "/etc/logos", "--origin-port", "8080", "--writer-user", "moses",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "origin-only" in result.stdout
+
+
+@pytest.mark.parametrize("uuid", ["0123456789abcdef", "01234567-89ab-cdef-0123-456789abcdeG"])
+def test_full_bootstrap_rejects_noncanonical_uuid(uuid: str) -> None:
+    result = subprocess.run(
+        [
+            "bash", str(ROOT / "scripts/bootstrap_origin.sh"), "--check", "--root", "/srv/logos",
+            "--config-dir", "/etc/logos", "--tunnel-uuid", uuid, "--hostname", "reader.example.org",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+
+
+@pytest.mark.parametrize("hostname", ["reader..example.org", "-reader.example.org", "reader-.example.org", "reader.example-"])
+def test_full_bootstrap_rejects_invalid_fqdn_labels(hostname: str) -> None:
+    result = subprocess.run(
+        [
+            "bash", str(ROOT / "scripts/bootstrap_origin.sh"), "--check", "--root", "/srv/logos",
+            "--config-dir", "/etc/logos", "--tunnel-uuid", "01234567-89ab-cdef-0123-456789abcdef",
+            "--hostname", hostname,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
 
 
 def test_cloudflared_validation_is_skipped_without_binary() -> None:

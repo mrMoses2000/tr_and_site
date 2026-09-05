@@ -24,6 +24,12 @@ accident.
    user must also be the user/group configured for the ingestion worker; this
    script does not rewrite the existing bot/worker unit.
 
+   For loopback-only preparation before Cloudflare account/hostname approval,
+   use `sudo scripts/bootstrap_origin.sh --origin-only --writer-user moses`.
+   This mode does not require or create Tunnel credentials, cloudflared config,
+   or the cloudflared unit. Full mode remains fail-closed until the canonical
+   Tunnel UUID, FQDN and credential JSON are present.
+
 4. Validate before enabling anything:
 
    ```bash
