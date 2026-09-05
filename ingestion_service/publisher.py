@@ -68,6 +68,8 @@ class BookPublisher:
             "author": metadata.get("author", "Unknown"),
             "authorRu": metadata.get("authorRu") or metadata.get("author", "Неизвестный автор"),
             "publisher": metadata.get("publisher", ""),
+            "targetLanguage": metadata.get("targetLanguage", "kk"),
+            "sourceLanguage": metadata.get("sourceLanguage", "auto"),
             "startPage": start_page,
             "endPage": end_page,
             "totalPages": total_pages,

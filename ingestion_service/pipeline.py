@@ -88,12 +88,27 @@ class IngestionPipeline:
             extractor.close()
 
             # Step 2: Translation & Paragraph Alignment via agy CLI
-            await notify(
-                "TRANSLATING",
-                f"🧠 Запуск богословского перевода и связки сносок через agy CLI (0/{total_pages})...",
-                0,
-                total_pages
-            )
+            target_lang = getattr(job, "target_lang", "kk") or "kk"
+            lang_label = {
+                "kk": "на казахский язык (Қазақша)",
+                "ru": "на русский язык",
+                "original": "в оригинале (без перевода)"
+            }.get(target_lang, target_lang)
+
+            if target_lang == "original":
+                await notify(
+                    "TRANSLATING",
+                    f"📑 Структурирование страниц и сносок в оригинале (0/{total_pages})...",
+                    0,
+                    total_pages
+                )
+            else:
+                await notify(
+                    "TRANSLATING",
+                    f"🧠 Богословский перевод {lang_label} через agy CLI (0/{total_pages})...",
+                    0,
+                    total_pages
+                )
 
             all_translated_pages: List[Dict[str, Any]] = []
             batch_chunks = [
@@ -106,18 +121,22 @@ class IngestionPipeline:
                 translated_batch = await self.bridge.translate_batch(
                     pages_data=batch,
                     book_title=metadata.get("title", slug),
-                    author=metadata.get("author", "Unknown")
+                    author=metadata.get("author", "Unknown"),
+                    target_lang=target_lang
                 )
                 for item in translated_batch:
                     all_translated_pages.append(item.model_dump())
 
                 processed_count += len(batch)
+                stage_label = "Обработано" if target_lang == "original" else "Переведено"
                 await notify(
                     "TRANSLATING",
-                    f"🧠 Переведено {processed_count} из {total_pages} страниц через agy CLI...",
+                    f"🧠 {stage_label} {processed_count} из {total_pages} страниц ({lang_label})...",
                     processed_count,
                     total_pages
                 )
+
+            metadata["targetLanguage"] = target_lang
 
             # Step 3: Compiling manifest & running Vitest Quality Gate
             await notify(

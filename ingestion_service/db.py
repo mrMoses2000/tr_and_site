@@ -13,6 +13,8 @@ class Job(BaseModel):
     file_name: str
     file_path: str
     book_slug: str
+    target_lang: str = "kk"  # 'kk' (Kazakh), 'ru' (Russian), 'original' (no translation)
+    source_lang: str = "auto"
     total_pages: int = 0
     processed_pages: int = 0
     status: str = "QUEUED" # QUEUED, EXTRACTING, TRANSLATING, COMPILING, TESTING, DEPLOYED, FAILED
@@ -38,6 +40,8 @@ def init_db():
                 file_name TEXT,
                 file_path TEXT,
                 book_slug TEXT,
+                target_lang TEXT DEFAULT 'kk',
+                source_lang TEXT DEFAULT 'auto',
                 total_pages INTEGER DEFAULT 0,
                 processed_pages INTEGER DEFAULT 0,
                 status TEXT DEFAULT 'QUEUED',
@@ -48,6 +52,16 @@ def init_db():
                 updated_at TEXT
             );
         """)
+        # Safe migration for existing DB
+        try:
+            conn.execute("ALTER TABLE jobs ADD COLUMN target_lang TEXT DEFAULT 'kk';")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE jobs ADD COLUMN source_lang TEXT DEFAULT 'auto';")
+        except sqlite3.OperationalError:
+            pass
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS books (
                 slug TEXT PRIMARY KEY,
@@ -68,17 +82,23 @@ def create_job(
     telegram_message_id: int,
     file_name: str,
     file_path: str,
-    book_slug: str
+    book_slug: str,
+    target_lang: str = "kk",
+    source_lang: str = "auto"
 ) -> Job:
     now = datetime.now(timezone.utc).isoformat()
     with get_db_connection() as conn:
         conn.execute("""
             INSERT INTO jobs (
                 id, telegram_user_id, telegram_chat_id, telegram_message_id,
-                file_name, file_path, book_slug, status, status_text,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'QUEUED', 'В очереди на обработку', ?, ?)
-        """, (job_id, telegram_user_id, telegram_chat_id, telegram_message_id, file_name, file_path, book_slug, now, now))
+                file_name, file_path, book_slug, target_lang, source_lang,
+                status, status_text, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED', 'В очереди на обработку', ?, ?)
+        """, (
+            job_id, telegram_user_id, telegram_chat_id, telegram_message_id,
+            file_name, file_path, book_slug, target_lang, source_lang,
+            now, now
+        ))
         conn.commit()
     
     return Job(
@@ -89,6 +109,8 @@ def create_job(
         file_name=file_name,
         file_path=file_path,
         book_slug=book_slug,
+        target_lang=target_lang,
+        source_lang=source_lang,
         created_at=now,
         updated_at=now
     )
@@ -100,7 +122,8 @@ def update_job(
     total_pages: Optional[int] = None,
     processed_pages: Optional[int] = None,
     error_message: Optional[str] = None,
-    live_url: Optional[str] = None
+    live_url: Optional[str] = None,
+    target_lang: Optional[str] = None
 ):
     now = datetime.now(timezone.utc).isoformat()
     fields = ["updated_at = ?"]
@@ -124,6 +147,9 @@ def update_job(
     if live_url is not None:
         fields.append("live_url = ?")
         params.append(live_url)
+    if target_lang is not None:
+        fields.append("target_lang = ?")
+        params.append(target_lang)
 
     params.append(job_id)
     with get_db_connection() as conn:

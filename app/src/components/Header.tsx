@@ -11,6 +11,7 @@ import {
   List,
   Maximize2,
   Minimize2,
+  Library,
 } from 'lucide-react';
 import type { ReaderSettings, ReaderMode, ReadingProgress } from '../domain/types';
 
@@ -26,6 +27,7 @@ interface HeaderProps {
   cardsCount?: number;
   isCardsOpen?: boolean;
   isFullscreen?: boolean;
+  onBackToCatalog?: () => void;
   onToggleBookmark: () => void;
   onOpenToc: () => void;
   onOpenSearch: () => void;
@@ -57,6 +59,7 @@ export const Header: FC<HeaderProps> = ({
   isFullscreen = false,
   onToggleFullscreen,
   onChangeMode,
+  onBackToCatalog,
 }) => {
   return (
     <header className="sticky top-0 z-30 w-full border-b backdrop-blur-md transition-colors duration-200"
@@ -79,6 +82,24 @@ export const Header: FC<HeaderProps> = ({
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-3 sm:px-6">
         {/* Left: Table of Contents & Title */}
         <div className="flex items-center space-x-2 sm:space-x-3">
+          {onBackToCatalog && (
+            <button
+              type="button"
+              onClick={onBackToCatalog}
+              title="На главную в библиотеку"
+              aria-label="В библиотеку"
+              className="flex items-center space-x-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all hover:opacity-85 active:scale-95"
+              style={{
+                backgroundColor: 'var(--bg-secondary)',
+                color: 'var(--text-primary)',
+                border: '1px solid var(--border-subtle)',
+              }}
+            >
+              <Library className="h-4 w-4 opacity-75" />
+              <span className="hidden sm:inline">Каталог</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onOpenToc}

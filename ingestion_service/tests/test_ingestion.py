@@ -65,14 +65,24 @@ def test_agy_bridge_clean_json():
     assert len(cleaned_raw) == 1
     assert cleaned_raw[0]["pageNumber"] == 2
 
-    # Case 3: Prompt builder
-    prompt = bridge._build_batch_prompt(
+    # Case 3: Prompt builder with Kazakh
+    prompt_kk = bridge._build_batch_prompt(
         pages_data=[{"pageNumber": 5, "text": "Some text"}],
         book_title="NT Theology",
-        author="Schreiner"
+        author="Schreiner",
+        target_lang="kk"
     )
-    assert "[PAGE_START: 5]" in prompt
-    assert "NT Theology" in prompt
+    assert "[PAGE_START: 5]" in prompt_kk
+    assert "Kazakh" in prompt_kk or "қазақ" in prompt_kk
+
+    # Case 4: Original mode
+    prompt_orig = bridge._build_batch_prompt(
+        pages_data=[{"pageNumber": 5, "text": "Some text"}],
+        book_title="NT Theology",
+        author="Schreiner",
+        target_lang="original"
+    )
+    assert "Preserve the original language" in prompt_orig
 
 @pytest.mark.asyncio
 async def test_publisher_compile_manifest(tmp_path):

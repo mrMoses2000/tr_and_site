@@ -11,6 +11,7 @@ import { BottomBar } from './components/BottomBar';
 import { CardModal } from './components/CardModal';
 import { CardsDrawer } from './components/CardsDrawer';
 import { FloatingSelectionToolbar } from './components/FloatingSelectionToolbar';
+import { HomePage } from './components/HomePage';
 import { HelpCircle, X, Keyboard, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export function App() {
@@ -59,6 +60,50 @@ export function App() {
 
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Determine initial view from URL hash
+  const getInitialView = (): 'home' | 'reader' => {
+    if (typeof window !== 'undefined' && window.location.hash) {
+      if (window.location.hash.startsWith('#book=') || window.location.hash.startsWith('#page=')) {
+        return 'reader';
+      }
+    }
+    return 'home';
+  };
+
+  const [currentView, setCurrentView] = useState<'home' | 'reader'>(getInitialView);
+
+  // Sync hash changes with view state
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      if (hash.startsWith('#book=') || hash.startsWith('#page=')) {
+        setCurrentView('reader');
+      } else if (hash === '#catalog' || hash === '#home' || hash === '' || hash === '#') {
+        setCurrentView('home');
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const handleOpenBook = useCallback((slug: string, page?: number) => {
+    selectBook(slug);
+    if (page) {
+      goToPage(page);
+    }
+    setCurrentView('reader');
+    if (typeof window !== 'undefined') {
+      window.location.hash = `book=${slug}&page=${page || 1}`;
+    }
+  }, [selectBook, goToPage]);
+
+  const handleBackToCatalog = useCallback(() => {
+    setCurrentView('home');
+    if (typeof window !== 'undefined') {
+      window.location.hash = 'catalog';
+    }
+  }, []);
 
   // Sync with native fullscreen state
   useEffect(() => {
@@ -119,6 +164,17 @@ export function App() {
     }
   };
 
+  if (currentView === 'home') {
+    return (
+      <HomePage
+        books={availableBooks}
+        activeTheme={settings.theme}
+        onSelectTheme={(theme) => updateSettings({ theme })}
+        onOpenBook={handleOpenBook}
+      />
+    );
+  }
+
   return (
     <div
       className="min-h-screen flex flex-col selection:bg-amber-200 selection:text-amber-950 transition-colors duration-200"
@@ -141,6 +197,7 @@ export function App() {
           cardsCount={cards.length}
           isCardsOpen={isCardsOpen}
           isFullscreen={isFullscreen}
+          onBackToCatalog={handleBackToCatalog}
           onToggleBookmark={() => toggleBookmark(currentPage)}
           onOpenToc={() => setIsTocOpen(true)}
           onOpenSearch={() => setIsSearchOpen(true)}

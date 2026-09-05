@@ -42,14 +42,39 @@ class AgyCliBridge:
         self.agy_bin = agy_bin
         self.timeout_seconds = timeout_seconds
 
-    def _build_batch_prompt(self, pages_data: List[Dict[str, Any]], book_title: str, author: str) -> str:
+    def _build_batch_prompt(
+        self,
+        pages_data: List[Dict[str, Any]],
+        book_title: str,
+        author: str,
+        target_lang: str = "kk"
+    ) -> str:
+        if target_lang == "kk":
+            lang_instruction = (
+                "Translate the following excerpt into high-quality, eloquent, academic Kazakh (қазақ тілі). "
+                "Ensure accurate theological and scholarly terminology (e.g. Жаңа Өсиет теологиясы, Құдайдың еркі, "
+                "құтқарылу тарихы, серт/өсиет теологиясы, реформаттық дәстүр, қағида, Киелі Жазба). "
+                "The 'ru' field in JSON must contain the academic Kazakh translation."
+            )
+        elif target_lang == "ru":
+            lang_instruction = (
+                "Translate the following excerpt into high-quality, academic theological Russian. "
+                "The 'ru' field in JSON must contain the academic Russian translation."
+            )
+        else:
+            lang_instruction = (
+                "Preserve the original language without translating. "
+                "Put the original paragraph text in both 'en' and 'ru' fields."
+            )
+
         prompt_lines = [
             f"You are an expert academic translator and theological scholar.",
-            f"Translate the following excerpt from the book '{book_title}' by {author} into high-quality academic Russian.",
+            f"Book: '{book_title}' by {author}.",
+            f"Task: {lang_instruction}",
             f"Requirements:",
-            f"1. Break the content into parallel paragraph pairs (en: original English text, ru: accurate academic theological Russian translation).",
+            f"1. Break the content into parallel paragraph pairs (en: original text, ru: translation/target text).",
             f"2. Paragraph IDs must be formatted as 'p-{{pageNumber}}-{{index}}' starting from 1 for each page.",
-            f"3. Extract all numbered footnotes and provide their original English text and Russian translation.",
+            f"3. Extract all numbered footnotes and provide their original text and translated text.",
             f"4. If a page has a chapter or section title, include it in 'chapterTitle'.",
             f"5. Estimate reading time in minutes for each page.",
             f"6. Return ONLY valid JSON matching this schema:",
@@ -116,12 +141,17 @@ class AgyCliBridge:
         pages_data: List[Dict[str, Any]],
         book_title: str,
         author: str,
+        target_lang: str = "kk",
         max_retries: int = 2
     ) -> List[TranslatedPageModel]:
         """
         Executes agy CLI command asynchronously and parses the structured response.
+        If target_lang is 'original', generates structured pages locally without translation.
         """
-        prompt = self._build_batch_prompt(pages_data, book_title, author)
+        if target_lang == "original":
+            return self._generate_fallback(pages_data)
+
+        prompt = self._build_batch_prompt(pages_data, book_title, author, target_lang=target_lang)
 
         last_err = None
         for attempt in range(1, max_retries + 1):

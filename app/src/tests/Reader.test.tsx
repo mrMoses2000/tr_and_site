@@ -5,7 +5,7 @@ import App from '../App';
 describe('Integration: Reader Application', () => {
   beforeEach(() => {
     localStorage.clear();
-    window.location.hash = '';
+    window.location.hash = '#book=schreiner-ntt&page=867';
   });
 
   it('renders initial page 867 with Russian translation and chapter header', () => {
