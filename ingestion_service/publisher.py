@@ -16,7 +16,7 @@ class BookPublisher:
     """
     Publisher service responsible for compiling translated book manifests,
     copying high-res WebP scans, verifying frontend tests (Vitest),
-    and deploying the updated reader to Netlify.
+    and preparing reader artifacts for a separate release adapter.
     """
 
     def __init__(self, app_dir: Path = APP_DIR):
@@ -91,7 +91,7 @@ class BookPublisher:
     async def run_quality_gate(self) -> bool:
         """
         Executes Vitest test suite.
-        Enforces test-first quality standard before deploying to production.
+        Enforces test-first quality standard before release promotion.
         """
         logger.info("Running Vitest test suite quality gate...")
         proc = await asyncio.create_subprocess_exec(
@@ -108,45 +108,3 @@ class BookPublisher:
         
         logger.info("Quality gate passed: all tests green.")
         return True
-
-    async def deploy_to_netlify(self, slug: str) -> str:
-        """
-        Builds the Vite web application and deploys to Netlify production.
-        Returns the direct live reader URL.
-        """
-        logger.info("Building production assets via npm run build...")
-        build_proc = await asyncio.create_subprocess_exec(
-            "npm", "run", "build",
-            cwd=str(self.app_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        b_stdout, b_stderr = await build_proc.communicate()
-        if build_proc.returncode != 0:
-            raise PublisherError(f"Vite build failed: {b_stderr.decode('utf-8', errors='replace')}")
-
-        logger.info("Deploying to Netlify Production...")
-        deploy_proc = await asyncio.create_subprocess_exec(
-            "npx", "netlify", "deploy", "--prod", "--dir=dist",
-            cwd=str(self.app_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        d_stdout, d_stderr = await deploy_proc.communicate()
-        if deploy_proc.returncode != 0:
-            raise PublisherError(f"Netlify deployment failed: {d_stderr.decode('utf-8', errors='replace')}")
-
-        out_text = d_stdout.decode("utf-8", errors="replace")
-        
-        # Base site URL
-        base_url = "https://harmonious-hotteok-0204c0.netlify.app"
-        for line in out_text.splitlines():
-            if "Website URL:" in line:
-                parts = line.split("Website URL:")
-                if len(parts) > 1:
-                    base_url = parts[1].strip()
-                    break
-
-        live_url = f"{base_url}/#book={slug}&page=1"
-        logger.info(f"Book deployed successfully to {live_url}")
-        return live_url

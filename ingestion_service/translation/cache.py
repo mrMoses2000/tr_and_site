@@ -11,23 +11,24 @@ def compute_batch_hash(
     envelope: TranslationEnvelope,
     prompt_version: str = "v1",
     model: str = "gemini-flash",
+    provider: str = "agy",
+    decoding_settings: Optional[dict] = None,
 ) -> str:
     """
-    Computes deterministic SHA-256 for translation batch payload.
-    Includes contractVersion, book ID, languages, prompt version, model, and all block IDs and text.
-    """
-    tokens = [
-        envelope.contractVersion,
-        envelope.book.get("id", ""),
-        envelope.book.get("sourceLanguage", ""),
-        envelope.book.get("targetLanguage", ""),
-        prompt_version,
-        model,
-    ]
-    for b in envelope.blocks:
-        tokens.append(f"{b.id}:{b.text}")
+    Computes a canonical SHA-256 for the complete translation request.
 
-    serialized = "|".join(tokens)
+    The full envelope is included (policy, page numbers, block types and
+    metadata), together with prompt/provider/model revisions and decoding
+    settings, so structurally different requests cannot share a cache entry.
+    """
+    payload = {
+        "envelope": envelope.model_dump(mode="json"),
+        "promptVersion": prompt_version,
+        "provider": provider,
+        "model": model,
+        "decodingSettings": decoding_settings or {},
+    }
+    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 

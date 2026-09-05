@@ -1,55 +1,89 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional, Callable, Awaitable, List, Dict, Any
+from typing import Optional, Callable, Awaitable, List, Dict, Any, TYPE_CHECKING, Protocol
 
 from .config import STORAGE_DIR, PROCESSED_DIR, BATCH_SIZE
 from .db import update_job, get_job
 from .pdf_extractor import PDFExtractor
 from .agy_bridge import AgyCliBridge
 from .publisher import BookPublisher
+from .jobs.repository import StaleLeaseError
+
+if TYPE_CHECKING:
+    from .jobs.worker import JobExecutionContext
 
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str, int, int], Awaitable[None]]
 
+
+class PublicationPort(Protocol):
+    async def publish(self, slug: str) -> str:
+        """Publish a validated staged release and return its public URL."""
+
+
+class PublicationUnavailableError(RuntimeError):
+    """Raised until the P6/P11 atomic release adapter is configured."""
+
 class IngestionPipeline:
     """
     Hexagonal Orchestration Pipeline for automated book ingestion.
-    Coordinates PDF extraction, agy CLI theological translation,
-    manifest compilation, Vitest quality checks, and Netlify deployment.
+    Coordinates PDF extraction and translation. Release publication is an
+    explicit dependency and remains fail-closed until the staged release
+    adapter is supplied by the release workstream.
     """
 
     def __init__(
         self,
         bridge: Optional[AgyCliBridge] = None,
         publisher: Optional[BookPublisher] = None,
+        publication_port: Optional[PublicationPort] = None,
         batch_size: int = BATCH_SIZE
     ):
         self.bridge = bridge or AgyCliBridge()
-        self.publisher = publisher or BookPublisher()
+        self.publisher = publisher
+        self.publication_port = publication_port
         self.batch_size = batch_size
 
     async def run(
         self,
         job_id: str,
-        on_progress: Optional[ProgressCallback] = None
+        on_progress: Optional[ProgressCallback] = None,
+        execution_context: Optional["JobExecutionContext"] = None,
     ) -> str:
         job = get_job(job_id)
         if not job:
             raise ValueError(f"Job {job_id} not found in database")
+        if self.publisher is None or self.publication_port is None:
+            raise PublicationUnavailableError(
+                "No staged release publisher configured; publication is disabled until P6/P11."
+            )
 
         async def notify(status: str, text: str, processed: int, total: int):
-            update_job(
-                job_id,
-                status=status,
-                status_text=text,
-                total_pages=total,
-                processed_pages=processed
-            )
+            if execution_context:
+                execution_context.assert_active()
+                execution_context.checkpoint(
+                    step=status,
+                    data={"status": text[:500], "processed_pages": processed, "total_pages": total},
+                    processed_pages=processed,
+                )
+                execution_context.renew_lease()
+            else:
+                update_job(
+                    job_id,
+                    status=status,
+                    status_text=text,
+                    total_pages=total,
+                    processed_pages=processed
+                )
             if on_progress:
                 try:
+                    if execution_context:
+                        execution_context.assert_active()
                     await on_progress(text, processed, total)
+                except StaleLeaseError:
+                    raise
                 except Exception as e:
                     logger.warning(f"Error calling on_progress callback: {e}")
 
@@ -57,8 +91,11 @@ class IngestionPipeline:
         slug = job.book_slug
         book_processed_dir = PROCESSED_DIR / slug
         scans_dir = book_processed_dir / "scans"
+        if execution_context:
+            execution_context.assert_active()
         scans_dir.mkdir(parents=True, exist_ok=True)
 
+        extractor: Optional[PDFExtractor] = None
         try:
             # Step 1: Extraction & Scan rendering
             await notify("EXTRACTING", "📄 Извлечение текста и генерация WebP-сканов страниц...", 0, 0)
@@ -79,6 +116,8 @@ class IngestionPipeline:
             if target_lang == "original":
                 # High-precision direct extraction without AI overhead
                 for idx in range(total_pages):
+                    if execution_context:
+                        execution_context.assert_active()
                     page_num = idx + 1
                     img_path = extractor.render_page_as_webp(idx, scans_dir, slug)
                     structured_page = extractor.extract_page_structure(idx)
@@ -96,6 +135,8 @@ class IngestionPipeline:
                 # Step 1.1: Extract raw text & render scans
                 extracted_pages = []
                 for idx in range(total_pages):
+                    if execution_context:
+                        execution_context.assert_active()
                     page_num = idx + 1
                     text = extractor.extract_page_text(idx)
                     img_path = extractor.render_page_as_webp(idx, scans_dir, slug)
@@ -127,11 +168,14 @@ class IngestionPipeline:
 
                 processed_count = 0
                 for batch in batch_chunks:
+                    if execution_context:
+                        execution_context.assert_active()
                     translated_batch = await self.bridge.translate_batch(
                         pages_data=batch,
                         book_title=metadata.get("title", slug),
                         author=metadata.get("author", "Unknown"),
-                        target_lang=target_lang
+                        target_lang=target_lang,
+                        source_lang=metadata.get("sourceLanguage"),
                     )
                     for item in translated_batch:
                         all_pages.append(item.model_dump())
@@ -144,10 +188,11 @@ class IngestionPipeline:
                         total_pages
                     )
 
-            extractor.close()
             metadata["targetLanguage"] = target_lang
 
             # Step 3: Compiling manifest & running Vitest Quality Gate
+            if execution_context:
+                execution_context.assert_active()
             await notify(
                 "COMPILING",
                 "📦 Сборка манифеста библиотеки и запуск тестов качества Vitest...",
@@ -161,6 +206,8 @@ class IngestionPipeline:
                 scans_source_dir=scans_dir
             )
 
+            if execution_context:
+                execution_context.assert_active()
             await notify(
                 "TESTING",
                 "🧪 Запуск Vitest: проверка регрессий и целостности...",
@@ -169,14 +216,16 @@ class IngestionPipeline:
             )
             await self.publisher.run_quality_gate()
 
-            # Step 4: Production Deployment to Netlify
+            # Step 4: Publication through an injected staged-release port.
             await notify(
-                "DEPLOYING",
-                "🚀 Деплой на Netlify Production...",
+                "PUBLISHING",
+                "🚀 Публикация подготовленного staged-релиза...",
                 total_pages,
                 total_pages
             )
-            live_url = await self.publisher.deploy_to_netlify(slug)
+            if execution_context:
+                execution_context.assert_active()
+            live_url = await self.publication_port.publish(slug)
 
             # Step 5: Completed
             await notify(
@@ -185,10 +234,26 @@ class IngestionPipeline:
                 total_pages,
                 total_pages
             )
-            update_job(job_id, status="DEPLOYED", live_url=live_url)
+            if execution_context:
+                execution_context.assert_active()
+                execution_context.checkpoint(
+                    "pipeline_complete",
+                    {"live_url": live_url, "total_pages": total_pages},
+                    processed_pages=total_pages,
+                )
+            else:
+                update_job(job_id, status="DEPLOYED", live_url=live_url)
             return live_url
 
         except Exception as e:
             logger.error(f"Pipeline failed for job {job_id}: {e}", exc_info=True)
-            update_job(job_id, status="FAILED", status_text=str(e))
+            if execution_context:
+                # The worker owns the fenced FAILED transition.  Never let a
+                # stale pipeline mutate the legacy DB directly.
+                logger.error("Fenced pipeline failure; worker will record state")
+            else:
+                update_job(job_id, status="FAILED", status_text=str(e))
             raise
+        finally:
+            if extractor is not None:
+                extractor.close()

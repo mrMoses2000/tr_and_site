@@ -175,18 +175,10 @@ async def handle_start(message: types.Message):
         "• <b>🇰🇿 Перевод на казахский язык:</b> академический богословский перевод (академиялық қазақша теологиялық аударма).\n"
         "• <b>🇷🇺 Перевод на русский язык:</b> параллельный двуязычный текст и интерактивные сноски.\n"
         "• <b>📖 Публикация в оригинале:</b> для готовых книг на русском, казахском, английском с извлечением структуры.\n"
-        "• <b>⚡ Автодеплой:</b> сборка, прогон тестов Vitest и моментальная публикация на Netlify.\n\n"
+        "• <b>⚙️ Контроль качества:</b> сборка и проверки выполняются до отдельного staged-релиза.\n\n"
         "📥 <b>Чтобы начать:</b> просто отправьте сюда PDF-файл книги!"
     )
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(
-                text="🌐 Открыть главную страницу",
-                url="https://harmonious-hotteok-0204c0.netlify.app"
-            )
-        ]]
-    )
-    await message.answer(welcome_text, reply_markup=keyboard, parse_mode="HTML")
+    await message.answer(welcome_text, parse_mode="HTML")
 
 @dp.message(Command("library"))
 async def handle_library(message: types.Message):
@@ -195,11 +187,11 @@ async def handle_library(message: types.Message):
         "1. <b>Размышления о богословии Нового Завета</b>\n"
         "   ✍️ Томас Р. Шрейнер (Baker Academic)\n"
         "   📄 Стр. 867–888 • Двуязычный режим + сноски\n"
-        "   🔗 <a href='https://harmonious-hotteok-0204c0.netlify.app/#book=schreiner-ntt&amp;page=867'>Открыть книгу</a>\n\n"
+        "   🔗 Ссылка появится после публикации staged-релиза.\n\n"
         "2. <b>Герменевтическая спираль</b>\n"
         "   ✍️ Грант Р. Осборн (ЕААА)\n"
         "   📄 736 стр. • Академическое издание со сносками и оглавлением\n"
-        "   🔗 <a href='https://harmonious-hotteok-0204c0.netlify.app/#book=ozborn-germenevticheskaya-spiral&amp;page=10'>Открыть книгу</a>\n\n"
+        "   🔗 Ссылка появится после публикации staged-релиза.\n\n"
         "Чтобы добавить новую книгу, просто пришлите сюда PDF-файл!"
     )
     await message.answer(text, parse_mode="HTML")
@@ -242,18 +234,9 @@ def make_worker_processor(bot: Bot):
 
         async def on_progress(text: str, processed: int, total: int):
             nonlocal progress_total
+            context.assert_active()
             if total > 0:
                 progress_total = total
-            context.checkpoint(
-                step=text[:120],
-                data={
-                    "status": text[:500],
-                    "processed_pages": processed,
-                    "total_pages": progress_total,
-                },
-                processed_pages=processed,
-            )
-            context.renew_lease()
             bar = render_progress_bar(processed, total)
             msg_text = (
                 f"📖 <b>Обработка книги:</b> «{safe_name}»\n"
@@ -265,11 +248,10 @@ def make_worker_processor(bot: Bot):
             await safe_edit_message(bot, job.telegram_chat_id, job.telegram_message_id, msg_text)
 
         try:
-            live_url = await pipeline.run(job_id=job.id, on_progress=on_progress)
-            context.checkpoint(
-                "pipeline_complete",
-                {"live_url": live_url, "total_pages": progress_total},
-                processed_pages=progress_total,
+            live_url = await pipeline.run(
+                job_id=job.id,
+                on_progress=on_progress,
+                execution_context=context,
             )
             finish_text = (
                 f"🎉 <b>Книга успешно обработана!</b>\n\n"
@@ -282,6 +264,7 @@ def make_worker_processor(bot: Bot):
             keyboard = InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(text="📖 Открыть результат", url=live_url)
             ]])
+            context.assert_active()
             await safe_edit_message(
                 bot,
                 job.telegram_chat_id,
@@ -293,6 +276,7 @@ def make_worker_processor(bot: Bot):
         except Exception as exc:
             logger.error("Error in durable job %s: %s", job.id, exc, exc_info=True)
             safe_err = html.escape(str(exc)[:400])
+            context.assert_active()
             await safe_edit_message(
                 bot,
                 job.telegram_chat_id,

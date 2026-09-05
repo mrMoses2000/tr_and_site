@@ -1,4 +1,4 @@
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -12,6 +12,8 @@ class TranslationPolicy(BaseModel):
 class TranslationBlock(BaseModel):
     id: str
     text: str
+    pageNumber: Optional[int] = None
+    blockType: Literal["paragraph", "footnote", "heading"] = "paragraph"
 
 
 class TranslationEnvelope(BaseModel):
@@ -25,6 +27,7 @@ class BlockTranslationResult(BaseModel):
     id: str
     targetText: str
     language: str
+    pageNumber: Optional[int] = None
 
 
 class BatchTranslationResponse(BaseModel):

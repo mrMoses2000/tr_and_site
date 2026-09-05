@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import logging
 import signal
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Optional
 
@@ -21,6 +22,20 @@ class JobExecutionContext:
     job: JobRecord
     worker_id: str
     _lease_seconds: int = 60
+
+    def assert_active(self) -> None:
+        """Fail before an external side effect when this lease is stale."""
+        current = self.repository.get_job(self.job.id)
+        if not current or current.worker_id != self.worker_id or current.lease_epoch != self.job.lease_epoch:
+            raise StaleLeaseError(f"Worker '{self.worker_id}' lost the lease for job '{self.job.id}'")
+        if not current.lease_expires_at:
+            raise StaleLeaseError(f"Worker '{self.worker_id}' has no active lease for job '{self.job.id}'")
+        try:
+            expires = datetime.fromisoformat(current.lease_expires_at)
+        except ValueError as exc:
+            raise StaleLeaseError(f"Invalid lease expiry for job '{self.job.id}'") from exc
+        if expires < datetime.now(timezone.utc):
+            raise StaleLeaseError(f"Worker '{self.worker_id}' lease expired for job '{self.job.id}'")
 
     def checkpoint(
         self,
