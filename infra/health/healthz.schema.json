@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logos.invalid/contracts/healthz.v1.schema.json",
+  "title": "Logos origin health artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "service", "releaseId", "checkedAt", "version"],
+  "properties": {
+    "status": {"enum": ["ok", "degraded", "fail"]},
+    "service": {"const": "logos-origin"},
+    "releaseId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "checkedAt": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?Z$"},
+    "version": {"const": "1"}
+  }
+}

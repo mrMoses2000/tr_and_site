@@ -1,0 +1,30 @@
+[Unit]
+Description=Logos Cloudflare named Tunnel
+After=network-online.target logos-origin.service
+Wants=network-online.target
+Requires=logos-origin.service
+
+[Service]
+Type=simple
+User=cloudflared
+Group=cloudflared
+ExecStart=/usr/bin/cloudflared tunnel --config /etc/logos/cloudflared/config.yml run
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=15s
+
+# The credential JSON is provisioned separately with mode 0600.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/etc/logos/cloudflared
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

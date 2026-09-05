@@ -1,0 +1,8 @@
+# Rendered on the Ubuntu host. Do not commit tunnel credentials.
+tunnel: __TUNNEL_UUID__
+credentials-file: /etc/logos/cloudflared/__TUNNEL_UUID__.json
+
+ingress:
+  - hostname: __APPROVED_HOSTNAME__
+    service: http://127.0.0.1:__ORIGIN_PORT__
+  - service: http_status:404
