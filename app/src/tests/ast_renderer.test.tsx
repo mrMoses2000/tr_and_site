@@ -130,6 +130,7 @@ describe('P10 AST renderer', () => {
     '//evil.example/source.pdf',
     'javascript:alert(1)',
     '/\\evil.example/source.pdf',
+    '/bad\npath',
   ])('fails closed for an unsafe resolver URL: %s', (url) => {
     const resolver: SourceAssetResolver = { resolve: () => ({ status: 'available', url }) };
     expect(getSourceCompareState(anchor, resolver)).toEqual({

@@ -57,7 +57,7 @@ export function getSourceCompareState(
 }
 
 function isSafeRootRelativeUrl(value: string): boolean {
-  if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\') || /[\u0000-\u001f]/.test(value)) {
+  if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\') || containsControlCharacter(value)) {
     return false;
   }
   try {
@@ -66,4 +66,12 @@ function isSafeRootRelativeUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function containsControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f) return true;
+  }
+  return false;
 }
