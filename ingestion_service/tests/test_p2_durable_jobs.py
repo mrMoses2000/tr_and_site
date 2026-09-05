@@ -1,5 +1,6 @@
 import os
 import time
+import asyncio
 import pytest
 import sqlite3
 from datetime import datetime, timezone, timedelta
@@ -115,7 +116,7 @@ def test_stale_worker_rejected_on_reclaimed_lease(tmp_path):
     )
 
     # Worker 1 acquires
-    repo.acquire_next_job(worker_id="worker-1", lease_seconds=1)
+    acquired = repo.acquire_next_job(worker_id="worker-1", lease_seconds=1)
 
     # Force expiration and Worker 2 reclaims
     past_time = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
@@ -131,7 +132,8 @@ def test_stale_worker_rejected_on_reclaimed_lease(tmp_path):
             worker_id="worker-1",
             step="extract",
             checkpoint_data={"last_page": 5},
-            processed_pages=5
+            processed_pages=5,
+            lease_epoch=acquired.lease_epoch,
         )
 
 def test_duplicate_hash_detection(tmp_path):
@@ -222,7 +224,8 @@ def test_worker_resume_from_checkpoint_after_simulated_sigterm(tmp_path):
         worker_id="worker-1",
         step="extract",
         checkpoint_data={"last_verified_page": 3},
-        processed_pages=3
+        processed_pages=3,
+        lease_epoch=job.lease_epoch,
     )
 
     # Simulate crash & lease expiration
@@ -239,3 +242,159 @@ def test_worker_resume_from_checkpoint_after_simulated_sigterm(tmp_path):
     assert resumed_job.checkpoint_data is not None
     assert resumed_job.checkpoint_data.get("last_verified_page") == 3
     assert resumed_job.processed_pages == 3
+
+
+def test_enqueue_rejects_duplicate_source_hash_atomically(tmp_path):
+    from ingestion_service.jobs.repository import JobRepository, DuplicateSourceError
+
+    repo = JobRepository(str(tmp_path / "duplicate.db"))
+    repo.init_schema()
+    kwargs = dict(
+        source_sha256="same-source",
+        file_name="book.pdf",
+        file_path="/tmp/book.pdf",
+        telegram_user_id=1,
+        telegram_chat_id=1,
+        telegram_message_id=1,
+        book_slug="book",
+    )
+    repo.enqueue_job(job_id="job-1", **kwargs)
+    with pytest.raises(DuplicateSourceError) as exc_info:
+        repo.enqueue_job(job_id="job-2", **kwargs)
+    assert exc_info.value.existing_job.id == "job-1"
+
+
+def test_awaiting_mode_job_is_invisible_until_mode_is_selected(tmp_path):
+    from ingestion_service.jobs.repository import JobRepository, JobState
+
+    repo = JobRepository(str(tmp_path / "awaiting-mode.db"))
+    repo.init_schema()
+    created = repo.enqueue_job(
+        job_id="job-awaiting",
+        source_sha256="awaiting-source",
+        file_name="book.pdf",
+        file_path="/tmp/book.pdf",
+        telegram_user_id=1,
+        telegram_chat_id=1,
+        telegram_message_id=1,
+        book_slug="book",
+        total_pages=42,
+        initial_status=JobState.AWAITING_MODE,
+    )
+    assert created.status == JobState.AWAITING_MODE
+    assert created.total_pages == 42
+    assert repo.acquire_next_job("worker", lease_seconds=30) is None
+
+    queued = repo.update_queued_job(
+        "job-awaiting", target_lang="kk", status_text="В очереди на обработку"
+    )
+    assert queued.status == JobState.QUEUED
+    acquired = repo.acquire_next_job("worker", lease_seconds=30)
+    assert acquired is not None
+    assert acquired.target_lang == "kk"
+
+    with pytest.raises(ValueError, match="Unsupported target language"):
+        repo.update_queued_job("job-awaiting", target_lang="javascript")
+
+
+def test_worker_cancels_processor_when_lease_renewal_fails(tmp_path):
+    from ingestion_service.jobs.repository import JobRepository, StaleLeaseError
+    from ingestion_service.jobs.worker import IngestionWorker
+
+    repo = JobRepository(str(tmp_path / "lease-cancel.db"))
+    repo.init_schema()
+    repo.enqueue_job(
+        job_id="job-lease-cancel",
+        source_sha256="lease-cancel-source",
+        file_name="book.pdf",
+        file_path="/tmp/book.pdf",
+        telegram_user_id=1,
+        telegram_chat_id=1,
+        telegram_message_id=1,
+        book_slug="book",
+    )
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def processor(job, context):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    async def lease_failure(context):
+        await started.wait()
+        raise StaleLeaseError("forced lease loss")
+
+    async def scenario():
+        worker = IngestionWorker("worker", repo, lease_seconds=30, processor=processor)
+        worker._renew_until_done = lease_failure
+        with pytest.raises(StaleLeaseError, match="forced lease loss"):
+            await worker.process_once()
+
+    asyncio.run(scenario())
+    assert cancelled.is_set()
+    assert repo.get_job("job-lease-cancel").status == JobState.ACQUIRED
+
+
+def test_worker_executes_processor_and_fences_completion(tmp_path):
+    from ingestion_service.jobs.repository import JobRepository
+    from ingestion_service.jobs.worker import IngestionWorker
+
+    repo = JobRepository(str(tmp_path / "processor.db"))
+    repo.init_schema()
+    repo.enqueue_job(
+        job_id="job-processor",
+        source_sha256="processor-source",
+        file_name="book.pdf",
+        file_path="/tmp/book.pdf",
+        telegram_user_id=1,
+        telegram_chat_id=1,
+        telegram_message_id=1,
+        book_slug="book",
+    )
+    seen = []
+
+    async def processor(job, context):
+        seen.append(job.id)
+        context.checkpoint("extract", {"last_verified_page": 3}, processed_pages=3)
+        return "https://example.test/book"
+
+    worker = IngestionWorker("worker-processor", repo, lease_seconds=10, processor=processor)
+    asyncio.run(worker.process_once())
+    stored = repo.get_job("job-processor")
+    assert seen == ["job-processor"]
+    assert stored.status.value == "DEPLOYED"
+    assert stored.live_url == "https://example.test/book"
+    assert stored.checkpoint_data["last_verified_page"] == 3
+
+
+def test_stale_epoch_cannot_complete_after_reclaim(tmp_path):
+    from ingestion_service.jobs.repository import JobRepository, StaleLeaseError
+    from datetime import datetime, timezone, timedelta
+
+    repo = JobRepository(str(tmp_path / "fencing.db"))
+    repo.init_schema()
+    repo.enqueue_job(
+        job_id="job-fence",
+        source_sha256="fence-source",
+        file_name="book.pdf",
+        file_path="/tmp/book.pdf",
+        telegram_user_id=1,
+        telegram_chat_id=1,
+        telegram_message_id=1,
+        book_slug="book",
+    )
+    first = repo.acquire_next_job("worker-old", lease_seconds=30)
+    with repo.get_connection() as conn:
+        conn.execute(
+            "UPDATE jobs SET lease_expires_at = ? WHERE id = ?",
+            ((datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat(), "job-fence"),
+        )
+        conn.commit()
+    second = repo.acquire_next_job("worker-new", lease_seconds=30)
+    assert second.lease_epoch != first.lease_epoch
+    with pytest.raises(StaleLeaseError):
+        repo.complete_job("job-fence", "worker-old", lease_epoch=first.lease_epoch)

@@ -26,6 +26,9 @@ class Settings:
     admin_user_ids: List[int]
     agy_bin: str = "/home/moses/.local/bin/agy"
     batch_size: int = 5
+    max_upload_bytes: int = 512 * 1024 * 1024
+    worker_lease_seconds: int = 300
+    worker_poll_interval: float = 2.0
     storage_dir: Path = STORAGE_DIR
     inbox_dir: Path = INBOX_DIR
     processed_dir: Path = PROCESSED_DIR
@@ -43,7 +46,7 @@ def validate_config(env_override: Optional[Dict[str, str]] = None) -> Settings:
     token = env.get("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
         raise ConfigurationError("TELEGRAM_BOT_TOKEN environment variable is required")
-    if not BOT_TOKEN_REGEX.match(token) and token != "dummy_token_for_test" and token != "dummy_test_token":
+    if not BOT_TOKEN_REGEX.fullmatch(token):
         raise ConfigurationError("TELEGRAM_BOT_TOKEN has invalid format")
 
     # 2. TELEGRAM_ADMIN_IDS check (strict deny-by-default allowlist)
@@ -70,17 +73,41 @@ def validate_config(env_override: Optional[Dict[str, str]] = None) -> Settings:
 
     # 3. Optional settings
     agy_bin = env.get("AGY_BIN", "/home/moses/.local/bin/agy")
-    batch_size_str = env.get("BATCH_SIZE", "5")
-    try:
-        batch_size = int(batch_size_str)
-    except ValueError:
-        batch_size = 5
+
+    def positive_int(name: str, default: int, maximum: Optional[int] = None) -> int:
+        raw = env.get(name, str(default)).strip()
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise ConfigurationError(f"{name} must be an integer") from exc
+        if value <= 0 or (maximum is not None and value > maximum):
+            limit = f" and <= {maximum}" if maximum is not None else ""
+            raise ConfigurationError(f"{name} must be > 0{limit}")
+        return value
+
+    def positive_float(name: str, default: float) -> float:
+        raw = env.get(name, str(default)).strip()
+        try:
+            value = float(raw)
+        except ValueError as exc:
+            raise ConfigurationError(f"{name} must be a number") from exc
+        if value <= 0:
+            raise ConfigurationError(f"{name} must be > 0")
+        return value
+
+    batch_size = positive_int("BATCH_SIZE", 5, maximum=100)
+    max_upload_bytes = positive_int("MAX_UPLOAD_BYTES", 512 * 1024 * 1024)
+    worker_lease_seconds = positive_int("WORKER_LEASE_SECONDS", 300)
+    worker_poll_interval = positive_float("WORKER_POLL_INTERVAL", 2.0)
 
     return Settings(
         telegram_bot_token=token,
         admin_user_ids=admin_ids,
         agy_bin=agy_bin,
-        batch_size=batch_size
+        batch_size=batch_size,
+        max_upload_bytes=max_upload_bytes,
+        worker_lease_seconds=worker_lease_seconds,
+        worker_poll_interval=worker_poll_interval,
     )
 
 def get_settings() -> Settings:
@@ -90,7 +117,12 @@ def get_settings() -> Settings:
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_ADMIN_ID = os.getenv("TELEGRAM_ADMIN_ID", None)
 AGY_BIN = os.getenv("AGY_BIN", "/home/moses/.local/bin/agy")
-BATCH_SIZE = int(os.getenv("BATCH_SIZE", "5"))
+BATCH_SIZE = 5
+try:
+    BATCH_SIZE = int(os.getenv("BATCH_SIZE", "5"))
+except ValueError:
+    # Import-time compatibility alias; validate_config() is authoritative.
+    BATCH_SIZE = 5
 
 # Ensure required directories exist
 for directory in [STORAGE_DIR, INBOX_DIR, PROCESSED_DIR, APP_PUBLIC_SCANS_DIR]:

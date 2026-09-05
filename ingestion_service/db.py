@@ -18,10 +18,12 @@ class Job(BaseModel):
     source_lang: str = "auto"
     total_pages: int = 0
     processed_pages: int = 0
-    status: str = "QUEUED" # QUEUED, EXTRACTING, TRANSLATING, COMPILING, TESTING, DEPLOYED, FAILED
+    status: str = "QUEUED" # AWAITING_MODE, QUEUED, EXTRACTING, TRANSLATING, COMPILING, TESTING, DEPLOYED, FAILED
     status_text: str = "В очереди на обработку"
     worker_id: Optional[str] = None
     lease_expires_at: Optional[str] = None
+    lease_epoch: int = 0
+    version: int = 0
     attempt_count: int = 0
     max_attempts: int = 3
     current_step: Optional[str] = None
@@ -56,6 +58,8 @@ def init_db():
                 status_text TEXT DEFAULT 'В очереди на обработку',
                 worker_id TEXT,
                 lease_expires_at TEXT,
+                lease_epoch INTEGER DEFAULT 0,
+                version INTEGER DEFAULT 0,
                 attempt_count INTEGER DEFAULT 0,
                 max_attempts INTEGER DEFAULT 3,
                 current_step TEXT,
@@ -73,6 +77,8 @@ def init_db():
             ("source_sha256", "TEXT DEFAULT ''"),
             ("worker_id", "TEXT"),
             ("lease_expires_at", "TEXT"),
+            ("lease_epoch", "INTEGER DEFAULT 0"),
+            ("version", "INTEGER DEFAULT 0"),
             ("attempt_count", "INTEGER DEFAULT 0"),
             ("max_attempts", "INTEGER DEFAULT 3"),
             ("current_step", "TEXT"),

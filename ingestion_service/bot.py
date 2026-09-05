@@ -20,11 +20,13 @@ from .config import (
     TELEGRAM_ADMIN_ID,
     INBOX_DIR,
     BASE_DIR,
+    DB_PATH,
     validate_config,
     Settings,
     ConfigurationError
 )
-from .db import init_db, create_job, get_job, get_recent_jobs, update_job
+from .jobs.repository import DuplicateSourceError, JobRepository, JobState, sha256_file
+from .jobs.worker import IngestionWorker, JobExecutionContext
 from .pipeline import IngestionPipeline
 from .pdf_extractor import PDFExtractor, slugify_cyrillic
 from .lang_detector import detect_language, get_language_options
@@ -62,6 +64,40 @@ def sanitize_inbox_path(job_id: str, original_filename: str, base_inbox_dir: Pat
     if ".." in safe_path.name:
         raise ValueError(f"Security violation: dot-dot traversal detected in filename {original_filename}")
     return safe_path
+
+
+def remove_created_upload(save_path: Path, base_inbox_dir: Path) -> bool:
+    """Remove only a regular file directly inside the configured inbox.
+
+    The handler passes the exact path it generated.  Refuse symlinks and any
+    path outside the inbox so cleanup cannot become an arbitrary file delete.
+    """
+    try:
+        candidate = Path(save_path)
+        inbox = Path(base_inbox_dir).resolve()
+        if candidate.parent.resolve() != inbox or candidate.is_symlink():
+            logger.error("Refusing unsafe upload cleanup path: %s", candidate)
+            return False
+        if candidate.exists() and candidate.is_file():
+            candidate.unlink()
+            return True
+    except OSError:
+        logger.warning("Could not remove temporary upload %s", save_path, exc_info=True)
+    return False
+
+
+def validate_pdf_content(pdf_path: Path) -> int:
+    """Validate PDF magic and parser readability, returning its page count."""
+    with Path(pdf_path).open("rb") as uploaded_pdf:
+        if uploaded_pdf.read(5) != b"%PDF-":
+            raise ValueError("file does not have a valid PDF signature")
+    extractor = PDFExtractor(pdf_path)
+    try:
+        if extractor.total_pages <= 0:
+            raise ValueError("PDF contains no pages")
+        return extractor.total_pages
+    finally:
+        extractor.close()
 
 def render_progress_bar(processed: int, total: int) -> str:
     if total <= 0:
@@ -118,6 +154,16 @@ async def safe_edit_message(
 
 dp = Dispatcher()
 pipeline = IngestionPipeline()
+_job_repository: Optional[JobRepository] = None
+
+
+def get_job_repository() -> JobRepository:
+    """Return the process-wide durable repository, initializing it lazily."""
+    global _job_repository
+    if _job_repository is None:
+        _job_repository = JobRepository(str(DB_PATH))
+        _job_repository.init_schema()
+    return _job_repository
 
 @dp.message(Command("start"))
 async def handle_start(message: types.Message):
@@ -160,7 +206,7 @@ async def handle_library(message: types.Message):
 
 @dp.message(Command("status"))
 async def handle_status(message: types.Message):
-    jobs = get_recent_jobs(limit=5)
+    jobs = get_job_repository().list_recent_jobs(limit=5)
     if not jobs:
         await message.answer("ℹ️ Нет активных или недавних задач.")
         return
@@ -173,68 +219,90 @@ async def handle_status(message: types.Message):
         lang_badge = {"kk": "🇰🇿 Казахский", "ru": "🇷🇺 Русский", "original": "📖 Оригинал", "en": "🇬🇧 Английский"}.get(target, target)
         lines.append(
             f"• <b>{safe_name}</b> (<code>{j.id}</code>) — {lang_badge}\n"
-            f"  Статус: {j.status} {bar}\n"
+            f"  Статус: {j.status.value} {bar}\n"
             f"  Этап: <i>{html.escape(j.status_text)}</i>"
         )
         if j.live_url:
-            lines.append(f"  🔗 <a href='{j.live_url}'>Читать онлайн</a>")
+            safe_url = html.escape(j.live_url, quote=True)
+            lines.append(f"  🔗 <a href='{safe_url}'>Читать онлайн</a>")
 
     await message.answer("\n\n".join(lines), parse_mode="HTML")
 
-async def process_pdf_task(
-    job_id: str,
-    bot: Bot,
-    chat_id: int,
-    message_id: int,
-    file_name: str,
-    target_lang: str
-):
-    safe_name = html.escape(file_name)
-    lang_title = {
-        "kk": "🇰🇿 Казахский академический (Қазақша)",
-        "ru": "🇷🇺 Русский академический",
-        "original": "📖 Публикация в оригинале (без перевода)",
-        "en": "🇬🇧 Английский академический (English)"
-    }.get(target_lang, target_lang)
+def make_worker_processor(bot: Bot):
+    """Adapt the existing pipeline to the durable worker callback contract."""
+    async def process_job(job, context: JobExecutionContext) -> Optional[str]:
+        safe_name = html.escape(job.file_name)
+        progress_total = job.total_pages
+        lang_title = {
+            "kk": "🇰🇿 Казахский академический (Қазақша)",
+            "ru": "🇷🇺 Русский академический",
+            "original": "📖 Публикация в оригинале (без перевода)",
+            "en": "🇬🇧 Английский академический (English)"
+        }.get(job.target_lang, job.target_lang)
 
-    async def on_progress(text: str, processed: int, total: int):
-        bar = render_progress_bar(processed, total)
-        msg_text = (
-            f"📖 <b>Обработка книги:</b> «{safe_name}»\n"
-            f"🆔 <b>Задача:</b> <code>{job_id}</code>\n"
-            f"🌐 <b>Режим:</b> {lang_title}\n\n"
-            f"📊 <b>Прогресс:</b> {bar}\n"
-            f"⏳ <b>Текущий этап:</b> {html.escape(text)}"
-        )
-        await safe_edit_message(bot, chat_id, message_id, msg_text)
+        async def on_progress(text: str, processed: int, total: int):
+            nonlocal progress_total
+            if total > 0:
+                progress_total = total
+            context.checkpoint(
+                step=text[:120],
+                data={
+                    "status": text[:500],
+                    "processed_pages": processed,
+                    "total_pages": progress_total,
+                },
+                processed_pages=processed,
+            )
+            context.renew_lease()
+            bar = render_progress_bar(processed, total)
+            msg_text = (
+                f"📖 <b>Обработка книги:</b> «{safe_name}»\n"
+                f"🆔 <b>Задача:</b> <code>{job.id}</code>\n"
+                f"🌐 <b>Режим:</b> {lang_title}\n\n"
+                f"📊 <b>Прогресс:</b> {bar}\n"
+                f"⏳ <b>Текущий этап:</b> {html.escape(text)}"
+            )
+            await safe_edit_message(bot, job.telegram_chat_id, job.telegram_message_id, msg_text)
 
-    try:
-        live_url = await pipeline.run(job_id=job_id, on_progress=on_progress)
-        
-        finish_text = (
-            f"🎉 <b>Книга успешно опубликована!</b>\n\n"
-            f"📖 <b>Файл:</b> «{safe_name}»\n"
-            f"🌐 <b>Язык / Режим:</b> {lang_title}\n"
-            f"🆔 <b>Задача:</b> <code>{job_id}</code>\n"
-            f"✅ <b>Статус:</b> Обработка завершена, тесты качества Vitest пройдены, сайт обновлен на Netlify!\n\n"
-            f"🔗 <a href='{live_url}'>Нажмите сюда, чтобы открыть книгу в веб-читалке</a>"
-        )
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[[
-                InlineKeyboardButton(text="📖 Читать книгу онлайн", url=live_url)
-            ]]
-        )
-        await safe_edit_message(bot, chat_id, message_id, finish_text, reply_markup=keyboard)
+        try:
+            live_url = await pipeline.run(job_id=job.id, on_progress=on_progress)
+            context.checkpoint(
+                "pipeline_complete",
+                {"live_url": live_url, "total_pages": progress_total},
+                processed_pages=progress_total,
+            )
+            finish_text = (
+                f"🎉 <b>Книга успешно обработана!</b>\n\n"
+                f"📖 <b>Файл:</b> «{safe_name}»\n"
+                f"🌐 <b>Режим:</b> {lang_title}\n"
+                f"🆔 <b>Задача:</b> <code>{job.id}</code>\n"
+                f"✅ <b>Статус:</b> Результат прошёл настроенные проверки.\n\n"
+                f"🔗 <a href='{html.escape(live_url, quote=True)}'>Открыть результат</a>"
+            )
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="📖 Открыть результат", url=live_url)
+            ]])
+            await safe_edit_message(
+                bot,
+                job.telegram_chat_id,
+                job.telegram_message_id,
+                finish_text,
+                reply_markup=keyboard,
+            )
+            return live_url
+        except Exception as exc:
+            logger.error("Error in durable job %s: %s", job.id, exc, exc_info=True)
+            safe_err = html.escape(str(exc)[:400])
+            await safe_edit_message(
+                bot,
+                job.telegram_chat_id,
+                job.telegram_message_id,
+                f"❌ <b>Ошибка обработки книги:</b> «{safe_name}»\n\n"
+                f"Детали ошибки: <code>{safe_err}</code>",
+            )
+            raise
 
-    except Exception as e:
-        logger.error(f"Error in task {job_id}: {e}", exc_info=True)
-        safe_err = html.escape(str(e)[:400])
-        fail_text = (
-            f"❌ <b>Ошибка при обработке книги:</b>\n«{safe_name}»\n\n"
-            f"Детали ошибки: <code>{safe_err}</code>\n\n"
-            f"Вы можете попробовать отправить файл повторно."
-        )
-        await safe_edit_message(bot, chat_id, message_id, fail_text)
+    return process_job
 
 @dp.callback_query(F.data.startswith("mode:"))
 async def handle_mode_selection(callback: CallbackQuery, bot: Bot):
@@ -244,12 +312,30 @@ async def handle_mode_selection(callback: CallbackQuery, bot: Bot):
         return
     _, target_lang, job_id = parts
 
-    job = get_job(job_id)
+    try:
+        settings = validate_config()
+    except ConfigurationError:
+        await callback.message.answer("⚠️ Сервис временно недоступен для изменения задачи.")
+        return
+    if not is_user_authorized(callback.from_user.id if callback.from_user else None, settings.admin_user_ids):
+        await callback.message.answer("⛔ У вас нет прав на изменение этой задачи.")
+        return
+
+    repository = get_job_repository()
+    job = repository.get_job(job_id)
     if not job:
         await callback.message.answer("❌ Задача не найдена.")
         return
 
-    update_job(job_id, target_lang=target_lang, status="QUEUED", status_text="Запуск обработки...")
+    try:
+        job = repository.update_queued_job(
+            job_id,
+            target_lang=target_lang,
+            status_text="Задача поставлена в устойчивую очередь...",
+        )
+    except Exception:
+        await callback.message.answer("⚠️ Задача уже выполняется или недоступна для изменения.")
+        return
     safe_name = html.escape(job.file_name)
     lang_title = {
         "kk": "🇰🇿 Казахский академический (Қазақша)",
@@ -268,16 +354,7 @@ async def handle_mode_selection(callback: CallbackQuery, bot: Bot):
         f"Извлечение текста, сносок и WebP-сканов страниц..."
     )
 
-    asyncio.create_task(
-        process_pdf_task(
-            job_id=job_id,
-            bot=bot,
-            chat_id=callback.message.chat.id,
-            message_id=callback.message.message_id,
-            file_name=job.file_name,
-            target_lang=target_lang
-        )
-    )
+    await callback.message.answer("✅ Задача сохранена в устойчивой очереди. Worker начнёт обработку автоматически.")
 
 @dp.message(F.document)
 async def handle_document(message: types.Message, bot: Bot):
@@ -285,10 +362,11 @@ async def handle_document(message: types.Message, bot: Bot):
     # Strict deny-by-default allowlist check BEFORE any download or DB action
     try:
         settings = validate_config()
-        admin_ids = settings.admin_user_ids
-    except Exception:
-        raw_ids = os.getenv("TELEGRAM_ADMIN_IDS") or os.getenv("TELEGRAM_ADMIN_ID", "")
-        admin_ids = [int(x.strip()) for x in raw_ids.split(",") if x.strip().isdigit()]
+    except ConfigurationError:
+        logger.error("Rejecting upload because secure configuration is invalid")
+        await message.reply("⚠️ Сервис временно недоступен. Администратор должен проверить конфигурацию.")
+        return
+    admin_ids = settings.admin_user_ids
 
     sender_id = message.from_user.id if message.from_user else None
     if not is_user_authorized(sender_id, admin_ids):
@@ -297,7 +375,9 @@ async def handle_document(message: types.Message, bot: Bot):
         return
 
     file_name = doc.file_name or "book.pdf"
-    if not file_name.lower().endswith(".pdf") and doc.mime_type != "application/pdf":
+    if not file_name.lower().endswith(".pdf") or (
+        doc.mime_type is not None and doc.mime_type != "application/pdf"
+    ):
         await message.reply(
             "⚠️ Пожалуйста, отправьте файл книги в формате <b>PDF</b>.",
             parse_mode="HTML"
@@ -322,45 +402,112 @@ async def handle_document(message: types.Message, bot: Bot):
         parse_mode="HTML"
     )
 
+    # A random job id makes collisions unlikely, but never overwrite or later
+    # clean up a pre-existing path.
+    if save_path.exists() or save_path.is_symlink():
+        await init_msg.edit_text("❌ Не удалось безопасно подготовить файл загрузки.", parse_mode="HTML")
+        return
+
+    if doc.file_size is not None and doc.file_size > settings.max_upload_bytes:
+        await message.reply("⚠️ Файл превышает допустимый размер.")
+        return
+
     try:
         await bot.download(doc, destination=save_path)
     except Exception as e:
         logger.error(f"Failed to download file from Telegram: {e}")
+        remove_created_upload(save_path, INBOX_DIR)
         safe_err = html.escape(str(e))
         await init_msg.edit_text(f"❌ Не удалось скачать файл: {safe_err}", parse_mode="HTML")
         return
 
+    try:
+        downloaded_size = save_path.stat().st_size
+    except OSError:
+        await init_msg.edit_text("❌ Telegram не вернул содержимое файла.", parse_mode="HTML")
+        return
+
+    if downloaded_size > settings.max_upload_bytes:
+        remove_created_upload(save_path, INBOX_DIR)
+        await message.reply("⚠️ Файл превышает допустимый размер.")
+        return
+
+    # Validate both the PDF signature and that PyMuPDF can open the document.
+    # Do not fall back to metadata for malformed or non-PDF uploads.
+    try:
+        validate_pdf_content(save_path)
+        extractor = PDFExtractor(save_path)
+    except Exception:
+        remove_created_upload(save_path, INBOX_DIR)
+        await init_msg.edit_text(
+            "❌ Файл не является корректным PDF или повреждён.", parse_mode="HTML"
+        )
+        return
+
+    source_sha256 = sha256_file(str(save_path))
+    repository = get_job_repository()
+    existing = repository.find_by_source_hash(source_sha256)
+    if existing:
+        extractor.close()
+        remove_created_upload(save_path, INBOX_DIR)
+        await message.reply(
+            f"ℹ️ Этот PDF уже зарегистрирован в задаче <code>{html.escape(existing.id)}</code>.",
+            parse_mode="HTML",
+        )
+        return
+
     # Extract real metadata and detect document language
     try:
-        extractor = PDFExtractor(save_path)
         meta = extractor.get_metadata()
         total_pages = extractor.total_pages
         detected_lang = meta.get("sourceLanguage", "unknown")
         real_title = meta.get("title") or Path(file_name).stem
         real_author = meta.get("authorRu") or meta.get("author") or "Неизвестный автор"
         publisher = meta.get("publisher", "")
-        extractor.close()
     except Exception as e:
         logger.warning(f"Error inspecting PDF metadata: {e}")
-        detected_lang = "ru"
-        real_title = Path(file_name).stem
-        real_author = "Неизвестный автор"
-        publisher = ""
-        total_pages = 0
+        remove_created_upload(save_path, INBOX_DIR)
+        await init_msg.edit_text(
+            "❌ Не удалось прочитать структуру корректного PDF-файла.", parse_mode="HTML"
+        )
+        return
+    finally:
+        # The extractor owns a native document handle; it is safe to close it
+        # more than once and this also covers later enqueue errors.
+        extractor.close()
 
     slug = slugify_cyrillic(real_title)
 
     # Register in DB
-    create_job(
-        job_id=job_id,
-        telegram_user_id=message.from_user.id if message.from_user else 0,
-        telegram_chat_id=message.chat.id,
-        telegram_message_id=init_msg.message_id,
-        file_name=file_name,
-        file_path=str(save_path),
-        book_slug=slug,
-        target_lang="original" if detected_lang == "ru" else "kk"
-    )
+    try:
+        repository.enqueue_job(
+            job_id=job_id,
+            source_sha256=source_sha256,
+            telegram_user_id=message.from_user.id if message.from_user else 0,
+            telegram_chat_id=message.chat.id,
+            telegram_message_id=init_msg.message_id,
+            file_name=file_name,
+            file_path=str(save_path),
+            book_slug=slug,
+            target_lang="original" if detected_lang == "ru" else "kk",
+            source_lang=detected_lang,
+            total_pages=total_pages,
+            initial_status=JobState.AWAITING_MODE,
+        )
+    except DuplicateSourceError as duplicate:
+        remove_created_upload(save_path, INBOX_DIR)
+        await init_msg.edit_text(
+            f"ℹ️ Этот PDF уже зарегистрирован в задаче <code>{html.escape(duplicate.existing_job.id)}</code>.",
+            parse_mode="HTML",
+        )
+        return
+    except Exception:
+        remove_created_upload(save_path, INBOX_DIR)
+        logger.exception("Could not enqueue validated PDF job %s", job_id)
+        await init_msg.edit_text(
+            "❌ Не удалось поставить книгу в очередь обработки.", parse_mode="HTML"
+        )
+        return
 
     # Generate tailored language choices
     options = get_language_options(detected_lang)
@@ -395,14 +542,41 @@ async def handle_document(message: types.Message, bot: Bot):
 
 async def main():
     settings = validate_config()
-    init_db()
+    repository = get_job_repository()
+    repository.init_schema()
     bot = Bot(token=settings.telegram_bot_token)
     logger.info("Starting Telegram Bot with Long Polling (outbound HTTPS satisfying Telegram requirements)...")
     await bot.delete_webhook(drop_pending_updates=False)
     
+    worker = IngestionWorker(
+        worker_id=f"telegram-worker-{os.getpid()}",
+        repository=repository,
+        lease_seconds=settings.worker_lease_seconds,
+        processor=make_worker_processor(bot),
+    )
+    polling_task = asyncio.create_task(dp.start_polling(bot))
+    worker_task = asyncio.create_task(worker.run_async(settings.worker_poll_interval))
     try:
-        await dp.start_polling(bot)
+        done, _ = await asyncio.wait(
+            {polling_task, worker_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        # A normally-returning polling task must not leave the durable worker
+        # running forever.  Conversely, a stopped worker must release polling.
+        for task in (polling_task, worker_task):
+            if task not in done:
+                task.cancel()
+        await asyncio.gather(polling_task, worker_task, return_exceptions=True)
+        for task in done:
+            error = task.exception()
+            if error is not None:
+                raise error
     finally:
+        worker.stop()
+        for task in (polling_task, worker_task):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(polling_task, worker_task, return_exceptions=True)
         await bot.session.close()
 
 if __name__ == "__main__":
