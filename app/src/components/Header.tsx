@@ -9,6 +9,8 @@ import {
   Bookmark,
   BookMarked,
   List,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import type { ReaderSettings, ReaderMode, ReadingProgress } from '../domain/types';
 
@@ -23,12 +25,14 @@ interface HeaderProps {
   isBookmarked: boolean;
   cardsCount?: number;
   isCardsOpen?: boolean;
+  isFullscreen?: boolean;
   onToggleBookmark: () => void;
   onOpenToc: () => void;
   onOpenSearch: () => void;
   onOpenSettings: () => void;
   onToggleScan: () => void;
   onToggleCards?: () => void;
+  onToggleFullscreen?: () => void;
   isScanOpen: boolean;
   onChangeMode: (mode: ReaderMode) => void;
 }
@@ -50,6 +54,8 @@ export const Header: FC<HeaderProps> = ({
   onToggleScan,
   onToggleCards,
   isScanOpen,
+  isFullscreen = false,
+  onToggleFullscreen,
   onChangeMode,
 }) => {
   return (
@@ -264,7 +270,7 @@ export const Header: FC<HeaderProps> = ({
             onClick={onOpenSettings}
             title="Шрифт и оформление [F]"
             aria-label="Настройки шрифта и темы"
-            className="rounded-lg p-2 transition-all hover:opacity-80 active:scale-95"
+            className="rounded-lg p-2 transition-all hover:opacity-80 active:scale-95 cursor-pointer"
             style={{
               backgroundColor: 'var(--bg-secondary)',
               color: 'var(--text-primary)',
@@ -272,6 +278,24 @@ export const Header: FC<HeaderProps> = ({
             }}
           >
             <Sliders className="h-4 w-4" />
+          </button>
+
+          {/* Fullscreen / Zen Mode Trigger */}
+          <button
+            type="button"
+            onClick={onToggleFullscreen}
+            title={isFullscreen ? "Выйти из полноэкранного режима [Z]" : "Полноэкранный режим чтения без мишуры [Z]"}
+            aria-label="Полноэкранный режим"
+            className={`rounded-lg p-2 transition-all active:scale-95 cursor-pointer ${
+              isFullscreen ? 'ring-2' : 'hover:opacity-80'
+            }`}
+            style={{
+              backgroundColor: isFullscreen ? 'var(--accent-soft)' : 'var(--bg-secondary)',
+              color: isFullscreen ? 'var(--accent)' : 'var(--text-primary)',
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
         </div>
       </div>

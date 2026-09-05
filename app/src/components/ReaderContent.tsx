@@ -1,5 +1,5 @@
 import type { FC, ReactNode } from 'react';
-import { MessageSquare, ExternalLink, Sparkles, Quote, Bookmark } from 'lucide-react';
+import { Sparkles, Quote, Bookmark } from 'lucide-react';
 import type { PageData, ReaderSettings, FootnotePair, ResearchCard } from '../domain/types';
 
 interface ReaderContentProps {
@@ -9,7 +9,7 @@ interface ReaderContentProps {
   hoveredParagraphId: string | null;
   onHoverParagraph: (id: string | null) => void;
   onSelectFootnote: (footnote: FootnotePair) => void;
-  onOpenScan: () => void;
+  onOpenScan?: () => void;
   onOpenCreateCard: (data: {
     pageNumber: number;
     paragraphId?: string;
@@ -26,7 +26,6 @@ export const ReaderContent: FC<ReaderContentProps> = ({
   hoveredParagraphId,
   onHoverParagraph,
   onSelectFootnote,
-  onOpenScan,
   onOpenCreateCard,
   onOpenCards,
 }) => {
@@ -130,40 +129,6 @@ export const ReaderContent: FC<ReaderContentProps> = ({
         </header>
       )}
 
-      {/* Margin Notes / Editorial Callout if present on this physical scan */}
-      {page.marginNotes && page.marginNotes.length > 0 && (
-        <aside
-          className="mb-8 rounded-xl border p-4 shadow-xs transition-all sm:p-5"
-          style={{
-            backgroundColor: 'var(--bg-secondary)',
-            borderColor: 'var(--border-strong)',
-          }}
-        >
-          <div className="flex items-start space-x-3">
-            <div className="rounded-lg p-1.5" style={{ backgroundColor: 'var(--accent-soft)', color: 'var(--accent)' }}>
-              <MessageSquare className="h-4 w-4" />
-            </div>
-            <div className="flex-1 text-xs sm:text-sm">
-              <span className="font-semibold" style={{ color: 'var(--accent)' }}>Пометы на полях оригинала книги:</span>
-              <ul className="mt-1.5 list-disc space-y-1 pl-4 opacity-90" style={{ color: 'var(--text-secondary)' }}>
-                {page.marginNotes.map((note, idx) => (
-                  <li key={idx}>{note}</li>
-                ))}
-              </ul>
-            </div>
-            <button
-              type="button"
-              onClick={onOpenScan}
-              className="flex items-center space-x-1 rounded-md px-2 py-1 text-xs font-medium transition-all hover:opacity-80 active:scale-95 cursor-pointer"
-              style={{ backgroundColor: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
-            >
-              <span>Скан</span>
-              <ExternalLink className="h-3 w-3" />
-            </button>
-          </div>
-        </aside>
-      )}
-
       {/* Mode 1: Russian Editorial Reading View */}
       {settings.mode === 'ru' && (
         <div className="space-y-6">
@@ -181,8 +146,9 @@ export const ReaderContent: FC<ReaderContentProps> = ({
               );
             }
 
-            const isFirstPara = idx === 0 || (idx === 1 && page.paragraphs[0].en.length < 50);
-            const useDropCap = settings.showDropCap && isFirstPara;
+            // Drop cap only at the beginning of chapters (e.g. page 867, 870, 874, 879) on the very first paragraph
+            const isChapterStartPage = [867, 870, 874, 879].includes(page.pageNumber);
+            const useDropCap = settings.showDropCap && isChapterStartPage && idx === 0;
             const paraCards = getCardsForParagraph(para.id);
 
             return (
@@ -421,8 +387,8 @@ export const ReaderContent: FC<ReaderContentProps> = ({
               );
             }
 
-            const isFirstPara = idx === 0 || (idx === 1 && page.paragraphs[0].en.length < 50);
-            const useDropCap = settings.showDropCap && isFirstPara;
+            const isChapterStartPage = [867, 870, 874, 879].includes(page.pageNumber);
+            const useDropCap = settings.showDropCap && isChapterStartPage && idx === 0;
             const paraCards = getCardsForParagraph(para.id);
 
             return (
