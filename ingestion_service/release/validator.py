@@ -157,7 +157,7 @@ class ReleaseValidator:
             books = catalog.get("books") if isinstance(catalog, dict) else None
             if (
                 not isinstance(catalog, dict)
-                or catalog.get("schemaVersion") != "1.0"
+                or str(catalog.get("schemaVersion")) not in ("1", "1.0")
                 or not isinstance(books, list)
             ):
                 raise ReleaseValidationError("Invalid catalog.json contract")
