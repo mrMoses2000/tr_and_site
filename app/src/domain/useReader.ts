@@ -218,11 +218,24 @@ export function useReader(options: UseReaderOptions = {}) {
       if (typeof window === 'undefined') return;
       const parsed = parseReaderLocation(window.location.hash, currentBookSlug, currentPage);
       if (parsed.view === 'catalog' || !parsed.bookSlug) return;
+
+      // A local navigation writes the canonical hash and then receives an
+      // asynchronous hashchange event. Do not replay the same transition:
+      // navigateLocation closes overlays, so replaying it would immediately
+      // hide a scan/footnote opened by the original action. A genuinely
+      // different hash (including Back/Forward) still goes through navigation.
+      const normalized = resolveAndValidateLocation(
+        parsed,
+        boundsResolver,
+        currentBookSlug,
+        currentPage,
+      );
+      if (serializeReaderLocation(normalized) === serializeReaderLocation(location)) return;
       navigateLocation(parsed, false);
     };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [currentBookSlug, currentPage, navigateLocation]);
+  }, [currentBookSlug, currentPage, location, navigateLocation]);
 
   const selectBook = useCallback((slug: string, page?: number) => {
     const bounds = boundsResolver(slug);

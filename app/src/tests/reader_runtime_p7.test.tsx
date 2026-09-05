@@ -63,8 +63,21 @@ describe('P7/P8 reader runtime contracts', () => {
     const loader = vi.fn(async () => fixture);
     render(<App readerOptions={{ loadManifest: loader }} />);
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Fixture chapter', level: 1 })).toBeInTheDocument());
+
+    const hashChange = new Promise<void>((resolve) => {
+      const handleHashChange = () => {
+        if (window.location.hash.includes('view=scan')) {
+          window.removeEventListener('hashchange', handleHashChange);
+          resolve();
+        }
+      };
+      window.addEventListener('hashchange', handleHashChange);
+    });
     fireEvent.click(screen.getByTitle(/Фото оригинала страницы/i));
     expect(await screen.findByText(/Оригинальный скан • Стр\. 1/i)).toBeInTheDocument();
+    await hashChange;
+    // The asynchronous hashchange echo must not close the overlay opened above.
+    expect(screen.getByText(/Оригинальный скан • Стр\. 1/i)).toBeInTheDocument();
   });
 
   it('renders a typed load error for an unknown deep-link book', async () => {
@@ -126,6 +139,29 @@ describe('P7/P8 reader runtime contracts', () => {
     fireEvent.click(screen.getByTitle(/Закрыть/));
     await waitFor(() => expect(screen.queryByText('Сноска fixture')).not.toBeInTheDocument());
     expect(window.location.hash).not.toContain('fn=7');
+  });
+
+  it('keeps an opened footnote visible after its asynchronous hashchange echo', async () => {
+    window.location.hash = '#book=fixture-book&page=1';
+    const loader = vi.fn(async () => fixture);
+    render(<App readerOptions={{ loadManifest: loader }} />);
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Fixture chapter', level: 1 })).toBeInTheDocument());
+
+    const hashChange = new Promise<void>((resolve) => {
+      const handleHashChange = () => {
+        if (window.location.hash.includes('fn=7')) {
+          window.removeEventListener('hashchange', handleHashChange);
+          resolve();
+        }
+      };
+      window.addEventListener('hashchange', handleHashChange);
+    });
+    const footnoteButton = document.querySelector('[data-footnote-id="7"]');
+    expect(footnoteButton).not.toBeNull();
+    fireEvent.click(footnoteButton!);
+    expect(await screen.findByText('Сноска fixture')).toBeInTheDocument();
+    await hashChange;
+    expect(screen.getByText('Сноска fixture')).toBeInTheDocument();
   });
 
   it('passes paragraph and footnote anchors when selecting search results', async () => {

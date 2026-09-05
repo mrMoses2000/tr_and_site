@@ -111,7 +111,11 @@ describe('Integration: Reader Application', () => {
     fireEvent.change(bookSelect, { target: { value: 'ozborn-germenevticheskaya-spiral' } });
 
     // Verify Osborne loaded at its start page (page 1) without being clamped to 867
-    await waitFor(() => expect(screen.getAllByText(/Грант Р\. Осборн/i).length).toBeGreaterThan(0));
+    // Osborne is currently one ~6MB dynamic manifest (P8 single-chunk gap),
+    // so allow the integration loader longer than Testing Library's 1s default.
+    await waitFor(() => expect(screen.getAllByText(/Грант Р\. Осборн/i).length).toBeGreaterThan(0), {
+      timeout: 10000,
+    });
     expect(screen.getByText(/Стр\. 1/i)).toBeInTheDocument();
     expect(screen.getByText(/736 стр\./i)).toBeInTheDocument();
 
