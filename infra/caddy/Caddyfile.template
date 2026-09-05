@@ -1,7 +1,6 @@
 # Render with scripts/bootstrap_origin.sh. Keep this file free of secrets.
 {
 	admin off
-	persist_config off
 	auto_https off
 }
 

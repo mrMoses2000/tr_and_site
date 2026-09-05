@@ -52,7 +52,6 @@ def test_caddy_template_keeps_assets_file_only_and_binds_loopback() -> None:
     template = (ROOT / "infra/caddy/Caddyfile.template").read_text(encoding="utf-8")
     assert "http://127.0.0.1:__ORIGIN_PORT__" in template
     assert "\tbind 127.0.0.1\n" in template
-    assert "\tpersist_config off\n" in template
     assert "@static_asset path_regexp" in template
     assert "[A-Za-z0-9_-]{8,64}" in template
     hashed_pattern = re.compile(
@@ -74,6 +73,7 @@ def test_origin_templates_have_no_credentials_and_use_service_identities() -> No
     tunnel_unit = (ROOT / "infra/systemd/logos-cloudflared.service").read_text(encoding="utf-8")
     tunnel_config = (ROOT / "infra/cloudflared/config.yml.template").read_text(encoding="utf-8")
     assert "User=logos" in caddy_unit and "NoNewPrivileges=true" in caddy_unit
+    assert "Environment=XDG_CONFIG_HOME=/var/lib/caddy/config" in caddy_unit
     assert "User=cloudflared" in tunnel_unit and "ProtectSystem=strict" in tunnel_unit
     assert "__TUNNEL_UUID__" in tunnel_config
     assert "credentials-file:" in tunnel_config
