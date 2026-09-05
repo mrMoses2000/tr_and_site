@@ -14,4 +14,9 @@ Production target: immutable releases на Ubuntu, Caddy только на loopb
 один точный вопрос при missing credentials/domain, правах на книгу,
 платном API/TTS, необратимой migration или production cutover. Не раскрывай
 секреты и не считай исходный текст успешным переводом.
+
+Полные PDF не лежат в Git: перед PDF-этапом найди owner-provided файлы в
+/srv/logos/sources/incoming и storage, сверяй книги только по SHA-256 из
+раздела 7.3 playbook. Ничего похожего по имени не скачивай и не подменяй;
+если hash отсутствует, остановись со списком MISSING_SOURCE.
 ```
