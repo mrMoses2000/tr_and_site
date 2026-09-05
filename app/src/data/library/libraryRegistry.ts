@@ -39,40 +39,113 @@ export const registeredBooks: Record<string, BookManifest> = {
 };
 
 // Lazy dynamic chunk loaders for full book manifests
-export const dynamicBookLoaders: Record<string, () => Promise<any>> = import.meta.glob<Record<string, any>>(
+export const dynamicBookLoaders: Record<string, () => Promise<unknown>> = import.meta.glob<Record<string, unknown>>(
   '../books/*/manifest.json'
 );
 
-// In test environments, eagerly populate registeredBooks so synchronous tests run seamlessly
-if (typeof import.meta !== 'undefined' && (import.meta as any).env?.MODE === 'test') {
-  const eagerModules = import.meta.glob<Record<string, any>>(
-    '../books/*/manifest.json',
-    { eager: true }
-  );
-  for (const module of Object.values(eagerModules)) {
-    const manifest = (module as any).default || module;
-    if (manifest && manifest.slug) {
-      registeredBooks[manifest.slug] = manifest;
-    }
+const dynamicBookLoadersBySlug: Record<string, () => Promise<unknown>> = {};
+for (const [path, loader] of Object.entries(dynamicBookLoaders)) {
+  const match = path.match(/(?:^|\/)books\/([^/]+)\/manifest\.json$/);
+  if (match && !dynamicBookLoadersBySlug[match[1]]) dynamicBookLoadersBySlug[match[1]] = loader;
+}
+
+export class UnknownBookError extends Error {
+  readonly slug: string;
+
+  constructor(slug: string) {
+    super(`Unknown book slug: ${slug}`);
+    this.name = 'UnknownBookError';
+    this.slug = slug;
+    Object.setPrototypeOf(this, UnknownBookError.prototype);
   }
 }
 
-export async function loadBookManifest(slug: string): Promise<BookManifest> {
+export class InvalidBookManifestError extends Error {
+  readonly slug: string;
+
+  constructor(slug: string) {
+    super(`Invalid book manifest: ${slug}`);
+    this.name = 'InvalidBookManifestError';
+    this.slug = slug;
+    Object.setPrototypeOf(this, InvalidBookManifestError.prototype);
+  }
+}
+
+export class BookManifestLoadCancelledError extends Error {
+  readonly slug: string;
+
+  constructor(slug: string) {
+    super(`Book manifest load cancelled: ${slug}`);
+    this.name = 'BookManifestLoadCancelledError';
+    this.slug = slug;
+    Object.setPrototypeOf(this, BookManifestLoadCancelledError.prototype);
+  }
+}
+
+export type BookManifestLoader = (
+  slug: string,
+  signal?: AbortSignal,
+) => Promise<BookManifest>;
+
+// Compatibility loader: the current Osborne asset is one dynamic manifest,
+// not true per-page chunks. Keep this explicit until a chunks index exists.
+
+function assertNotAborted(slug: string, signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new BookManifestLoadCancelledError(slug);
+  }
+}
+
+function isBookManifest(value: unknown): value is BookManifest {
+  if (!value || typeof value !== 'object') return false;
+  const manifest = value as Partial<BookManifest>;
+  return typeof manifest.slug === 'string'
+    && typeof manifest.title === 'string'
+    && typeof manifest.startPage === 'number'
+    && typeof manifest.endPage === 'number'
+    && typeof manifest.totalPages === 'number'
+    && Array.isArray(manifest.pages)
+    && Array.isArray(manifest.tableOfContents);
+}
+
+function hasConsistentManifestBounds(manifest: BookManifest, slug: string): boolean {
+  if (manifest.slug !== slug || manifest.startPage > manifest.endPage || manifest.totalPages < 1) {
+    return false;
+  }
+  return manifest.pages.every((page) => (
+    Boolean(page)
+    && typeof page.pageNumber === 'number'
+    && page.pageNumber >= manifest.startPage
+    && page.pageNumber <= manifest.endPage
+  )) && new Set(manifest.pages.map((page) => page.pageNumber)).size === manifest.pages.length;
+}
+
+export const loadBookManifest: BookManifestLoader = async (slug, signal) => {
+  assertNotAborted(slug, signal);
   if (registeredBooks[slug]) {
     return registeredBooks[slug];
   }
 
-  for (const [path, loader] of Object.entries(dynamicBookLoaders)) {
-    if (path.includes(`/${slug}/`)) {
-      const module = await loader();
-      const manifest = module.default || module;
-      registeredBooks[slug] = manifest;
-      return manifest;
+  const loader = dynamicBookLoadersBySlug[slug];
+  if (loader) {
+    let module: unknown;
+    try {
+      module = await loader();
+    } catch (error) {
+      if (signal?.aborted) throw new BookManifestLoadCancelledError(slug);
+      throw error;
     }
+    assertNotAborted(slug, signal);
+    const manifest = (module as Record<string, unknown>).default || module;
+    if (!isBookManifest(manifest) || !hasConsistentManifestBounds(manifest, slug)) {
+      throw new InvalidBookManifestError(slug);
+    }
+    registeredBooks[slug] = manifest;
+    return manifest;
   }
 
-  return registeredBooks['schreiner-ntt'];
-}
+  throw new UnknownBookError(slug);
+};
 
 export function getBookManifest(slug?: string): BookManifest {
   if (slug && registeredBooks[slug]) {
@@ -96,7 +169,8 @@ export function getBookManifest(slug?: string): BookManifest {
     };
   }
 
-  return registeredBooks['schreiner-ntt'];
+  if (!slug) return registeredBooks['schreiner-ntt'];
+  throw new UnknownBookError(slug);
 }
 
 export function getAllBooksSummary(): BookSummary[] {

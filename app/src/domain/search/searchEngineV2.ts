@@ -178,15 +178,20 @@ export function searchPagesV2(
   return result;
 }
 
-export interface DebouncedSearchWorker {
+/** Current compatibility mode: synchronous main-thread scan over a loaded
+ * whole-book manifest. This is cancellable/debounced, but not a Web Worker.
+ */
+export const SEARCH_EXECUTION_MODE = 'main-thread-whole-manifest-compatibility' as const;
+
+export interface DebouncedSearchExecutor {
   search: (query: string, options?: SearchOptions) => Promise<{ query: string; matches: SearchMatchV2[]; totalMatches: number; truncated: boolean }>;
   cancel: () => void;
 }
 
-export function createDebouncedSearchWorker(
+export function createDebouncedSearchExecutor(
   pages: PageData[],
   debounceMs = 250
-): DebouncedSearchWorker {
+): DebouncedSearchExecutor {
   let timer: any = null;
   let activeReject: ((reason: any) => void) | null = null;
 
@@ -229,3 +234,6 @@ export function createDebouncedSearchWorker(
     },
   };
 }
+
+/** @deprecated Kept as a compatibility alias; this does not create a Web Worker. */
+export const createDebouncedSearchWorker = createDebouncedSearchExecutor;

@@ -15,7 +15,15 @@ export class UnavailableChunkError extends Error {
 
 export type PageChunkLoader = (bookSlug: string, pageNumber: number) => Promise<PageData>;
 
-export class LazyPageRepository {
+/** Compatibility port: current books still ship one manifest chunk per book.
+ * Keep this boundary so true per-page chunking can be added without changing
+ * reader consumers; no page chunk files are assumed to exist today.
+ */
+export interface PageRepository {
+  getPage(bookSlug: string, pageNumber: number): Promise<PageData>;
+}
+
+export class LazyPageRepository implements PageRepository {
   private loader: PageChunkLoader;
   private cache: Map<string, PageData> = new Map();
   private inFlight: Map<string, Promise<PageData>> = new Map();

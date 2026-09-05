@@ -10,6 +10,11 @@ import {
   type PageChunkLoader,
 } from '../domain/repository/pageRepository';
 import type { PageData } from '../domain/types';
+import {
+  loadBookManifest,
+  UnknownBookError,
+  BookManifestLoadCancelledError,
+} from '../data/library/libraryRegistry';
 
 describe('Phase P8: Search Engine V2', () => {
   const samplePages: PageData[] = [
@@ -106,6 +111,17 @@ describe('Phase P8: Search Engine V2', () => {
 });
 
 describe('Phase P8: Lazy Manifests & Page Repository', () => {
+  it('rejects unknown slugs without silently falling back to another book', async () => {
+    await expect(loadBookManifest('does-not-exist')).rejects.toBeInstanceOf(UnknownBookError);
+  });
+
+  it('does not commit a manifest after the caller aborts a load', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(loadBookManifest('ozborn-germenevticheskaya-spiral', controller.signal))
+      .rejects.toBeInstanceOf(BookManifestLoadCancelledError);
+  });
+
   it('loads page chunks on demand and caches subsequent requests', async () => {
     const mockLoader: PageChunkLoader = vi.fn().mockImplementation(async (_slug: string, pageNum: number) => {
       return {

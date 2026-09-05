@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from '../App';
 
 describe('Integration: Reader Application', () => {
@@ -95,7 +95,7 @@ describe('Integration: Reader Application', () => {
     expect(screen.getByText(/Моя ключевая мысль для дипломной работы/i)).toBeInTheDocument();
   });
 
-  it('switches between books atomically via TOC without page bounds contamination', () => {
+  it('switches between books atomically via TOC without page bounds contamination', async () => {
     render(<App />);
 
     // Initially Schreiner page 867
@@ -111,7 +111,7 @@ describe('Integration: Reader Application', () => {
     fireEvent.change(bookSelect, { target: { value: 'ozborn-germenevticheskaya-spiral' } });
 
     // Verify Osborne loaded at its start page (page 1) without being clamped to 867
-    expect(screen.getAllByText(/Грант Р\. Осборн/i).length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getAllByText(/Грант Р\. Осборн/i).length).toBeGreaterThan(0));
     expect(screen.getByText(/Стр\. 1/i)).toBeInTheDocument();
     expect(screen.getByText(/736 стр\./i)).toBeInTheDocument();
 
@@ -121,8 +121,7 @@ describe('Integration: Reader Application', () => {
     fireEvent.change(bookSelectBack, { target: { value: 'schreiner-ntt' } });
 
     // Verify Schreiner is restored at page 867
-    expect(screen.getByText(/Томас Р\. Шрейнер/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Томас Р\. Шрейнер/i)).toBeInTheDocument());
     expect(screen.getByText(/Стр\. 867/i)).toBeInTheDocument();
   });
 });
-

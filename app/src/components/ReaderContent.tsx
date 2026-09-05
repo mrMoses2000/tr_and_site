@@ -70,6 +70,7 @@ export const ReaderContent: FC<ReaderContentProps> = ({
               e.stopPropagation();
               onSelectFootnote(fnData);
             }}
+            data-footnote-id={fnData.id}
             title={isRu ? fnData.textRu : fnData.textEn}
             className="mx-0.5 inline-flex items-center justify-center rounded px-1 py-0 text-[0.7em] font-bold transition-all hover:scale-110 active:scale-95 cursor-pointer"
             style={{
@@ -166,6 +167,7 @@ export const ReaderContent: FC<ReaderContentProps> = ({
               <div
                 key={para.id}
                 data-paragraph-id={para.id}
+                tabIndex={-1}
                 data-lang="ru"
                 className="group relative rounded-xl p-2 -mx-2 transition-all"
                 style={{
@@ -252,6 +254,7 @@ export const ReaderContent: FC<ReaderContentProps> = ({
                 <div
                   key={`en-${para.id}`}
                   data-paragraph-id={para.id}
+                  tabIndex={-1}
                   data-lang="en"
                   onMouseEnter={() => onHoverParagraph(para.id)}
                   onMouseLeave={() => onHoverParagraph(null)}
@@ -330,6 +333,7 @@ export const ReaderContent: FC<ReaderContentProps> = ({
                 <div
                   key={`ru-${para.id}`}
                   data-paragraph-id={para.id}
+                  tabIndex={-1}
                   data-lang="ru"
                   onMouseEnter={() => onHoverParagraph(para.id)}
                   onMouseLeave={() => onHoverParagraph(null)}
@@ -416,6 +420,7 @@ export const ReaderContent: FC<ReaderContentProps> = ({
               <div
                 key={para.id}
                 data-paragraph-id={para.id}
+                tabIndex={-1}
                 data-lang="en"
                 className="group relative rounded-xl p-2 -mx-2 transition-all"
                 style={{

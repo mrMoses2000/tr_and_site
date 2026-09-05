@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useReader } from './domain/useReader';
+import type { UseReaderOptions } from './domain/useReader';
 import { Header } from './components/Header';
 import { ReaderContent } from './components/ReaderContent';
 import { ScanViewer } from './components/ScanViewer';
@@ -14,9 +15,15 @@ import { FloatingSelectionToolbar } from './components/FloatingSelectionToolbar'
 import { HomePage } from './components/HomePage';
 import { HelpCircle, X, Keyboard, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react';
 
-export function App() {
+export interface AppProps {
+  readerOptions?: UseReaderOptions;
+}
+
+export function App({ readerOptions }: AppProps = {}) {
   const {
     manifest,
+    manifestLoadState,
+    manifestError,
     currentBookSlug,
     selectBook,
     availableBooks,
@@ -53,11 +60,11 @@ export function App() {
     setIsTocOpen,
     setIsSearchOpen,
     setIsSettingsOpen,
-    setIsScanOpen,
     setIsScanSplit,
     setIsCardsOpen,
     setHoveredParagraphId,
-  } = useReader();
+    toggleScan,
+  } = useReader(readerOptions);
 
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -90,12 +97,8 @@ export function App() {
 
   const handleOpenBook = useCallback((slug: string, page?: number) => {
     setCurrentView('reader');
-    if (page !== undefined) {
-      navigateLocation({ bookSlug: slug, pageNumber: page });
-    } else {
-      selectBook(slug);
-    }
-  }, [selectBook, navigateLocation]);
+    selectBook(slug, page);
+  }, [selectBook]);
 
   const handleBackToCatalog = useCallback(() => {
     setCurrentView('home');
@@ -174,6 +177,20 @@ export function App() {
     );
   }
 
+  if (manifestLoadState === 'loading') {
+    return <main role="status" aria-live="polite">Загрузка книги…</main>;
+  }
+  if (manifestLoadState === 'error' || !manifest) {
+    return (
+      <main role="alert">
+        Не удалось загрузить книгу: {manifestError?.message ?? 'неизвестная ошибка'}
+      </main>
+    );
+  }
+  if (!currentPageData) {
+    return <main role="alert">Страница {currentPage} отсутствует в манифесте этой книги.</main>;
+  }
+
   return (
     <div
       className="min-h-screen flex flex-col selection:bg-amber-200 selection:text-amber-950 transition-colors duration-200"
@@ -201,7 +218,7 @@ export function App() {
           onOpenToc={() => setIsTocOpen(true)}
           onOpenSearch={() => setIsSearchOpen(true)}
           onOpenSettings={() => setIsSettingsOpen(true)}
-          onToggleScan={() => setIsScanOpen(prev => !prev)}
+          onToggleScan={toggleScan}
           onToggleCards={() => setIsCardsOpen(prev => !prev)}
           onToggleFullscreen={toggleFullscreen}
           isScanOpen={isScanOpen}
@@ -283,7 +300,7 @@ export function App() {
           hoveredParagraphId={hoveredParagraphId}
           onHoverParagraph={setHoveredParagraphId}
           onSelectFootnote={setActiveFootnote}
-          onOpenScan={() => setIsScanOpen(true)}
+          onOpenScan={toggleScan}
           onOpenCreateCard={openCreateCard}
           onOpenCards={() => setIsCardsOpen(true)}
         />
@@ -332,7 +349,7 @@ export function App() {
         page={currentPageData}
         isOpen={isScanOpen}
         isSplit={isScanSplit}
-        onClose={() => setIsScanOpen(false)}
+        onClose={toggleScan}
         onToggleSplit={() => setIsScanSplit(prev => !prev)}
       />
 
@@ -377,7 +394,7 @@ export function App() {
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         pages={manifest.pages}
-        onSelectPage={goToPage}
+        onSelectLocation={(target) => navigateLocation(target)}
       />
 
       {/* Settings Dialog */}
