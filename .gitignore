@@ -3,6 +3,9 @@ node_modules/
 app/node_modules/
 .venv/
 storage/
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Production builds
 dist/
