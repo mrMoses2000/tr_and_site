@@ -56,7 +56,7 @@ The command requires an explicit confirmation and builds in `/srv/logos`, not
 in the checkout:
 
 ```bash
-python scripts/build_release.py \
+.venv/bin/python scripts/build_release.py \
   --confirm-seed \
   --job-id seed-osborne-v1 \
   --slug ozborn-germenevticheskaya-spiral \

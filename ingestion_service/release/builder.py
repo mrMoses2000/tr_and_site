@@ -45,6 +45,10 @@ def _assert_symlink_targets_contained(root: Path, *, ignored_names: set[str] | N
             candidate = Path(directory) / name
             if not candidate.is_symlink():
                 continue
+            if Path(os.readlink(candidate)).is_absolute():
+                raise ReleasePathError(
+                    f"Absolute build input symlink is not allowed: {candidate}"
+                )
             try:
                 candidate.resolve(strict=True).relative_to(resolved_root)
             except (OSError, ValueError) as exc:
@@ -145,7 +149,9 @@ class ProductionReleaseBuilder:
             dependencies = self.app_dir / "node_modules"
             if dependencies.is_dir() and not dependencies.is_symlink():
                 _assert_symlink_targets_contained(dependencies)
-                shutil.copytree(dependencies, workspace_app / "node_modules", symlinks=False)
+                # Relative links validated above keep pointing inside the
+                # private copy (not back into the active checkout).
+                shutil.copytree(dependencies, workspace_app / "node_modules", symlinks=True)
 
             self._merge_previous_release(workspace_app)
 

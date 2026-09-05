@@ -168,3 +168,17 @@ def test_candidate_cannot_overwrite_a_release_published_after_its_build(tmp_path
 
     assert promoter.current_release().name == "rel-race-a"
     assert stale.stage_path.exists()
+
+
+def test_builder_rejects_dependency_symlink_that_escapes_checkout(tmp_path: Path) -> None:
+    builder, app, _scans = _builder(tmp_path)
+    dependencies = app / "node_modules/.bin"
+    dependencies.mkdir(parents=True)
+    outside = tmp_path / "outside-tool"
+    outside.write_text("tool", encoding="utf-8")
+    (dependencies / "unsafe").symlink_to(outside)
+    stage = tmp_path / "stage"
+    stage.mkdir()
+
+    with pytest.raises(Exception, match="symlink"):
+        builder.build(ReleaseIdentity("job-link", "safe-book", "rel-link"), stage)
