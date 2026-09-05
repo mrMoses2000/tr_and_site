@@ -30,7 +30,7 @@ export type DocumentBlock =
   | { type: 'quotation'; id: string; runs: InlineRun[]; attribution?: InlineRun[] }
   | { type: 'list'; id: string; ordered: boolean; items: DocumentBlock[][] }
   | { type: 'table'; id: string; rows: InlineRun[][][]; fallbackImageRef?: string }
-  | { type: 'figure'; id: string; imageRef: string; caption?: InlineRun[]; alt?: string }
+  | { type: 'figure'; id: string; imageRef: string; caption?: InlineRun[] | string; alt?: string }
   | { type: 'footnote'; id: string; label: string; blocks: DocumentBlock[]; anchors: string[] }
   | { type: 'pageBreak'; id: string; pdfPageIndex: number; printedPageLabel?: string };
 

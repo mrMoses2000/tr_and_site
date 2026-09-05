@@ -5,7 +5,7 @@ export type ReaderMode = 'ru' | 'bilingual' | 'en';
 export type CardTag = 'thesis' | 'quote' | 'thought' | 'for-paper' | 'theology' | 'question';
 export type HighlightColor = 'amber' | 'emerald' | 'blue' | 'purple';
 
-import type { BookCitationMetadata, SourceAnchor } from './v2/types';
+import type { BookCitationMetadata, SourceAnchor, DocumentBlock } from './v2/types';
 
 export interface ResearchCard {
   id: string;
@@ -47,6 +47,7 @@ export interface PageData {
   marginNotes?: string[];
   readingTimeMinutes?: number;
   notes?: string[];
+  blocks?: DocumentBlock[];
 }
 
 export interface TocItem {

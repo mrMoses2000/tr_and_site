@@ -122,7 +122,7 @@ export const Header: FC<HeaderProps> = ({
               {author}
             </span>
             <span className="truncate text-xs font-medium" style={{ color: 'var(--text-primary)', maxWidth: '240px' }}>
-              {chapterTitle || 'Reflections on NT Theology'}
+              {chapterTitle || bookTitle || 'Чтение'}
             </span>
           </div>
         </div>

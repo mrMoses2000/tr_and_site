@@ -70,7 +70,9 @@ function blockText(block: DocumentBlock): string {
     case 'table':
       return block.rows.flatMap((row) => row.flatMap((cell) => cell.map((run) => run.text))).join(' ');
     case 'figure':
-      return block.caption?.map((run) => run.text).join('') ?? block.alt ?? '';
+      return Array.isArray(block.caption)
+        ? block.caption.map((run) => run.text).join('')
+        : (typeof block.caption === 'string' ? block.caption : (block.alt ?? ''));
     case 'footnote':
       return block.blocks.map(blockText).join(' ');
     case 'pageBreak':
@@ -176,9 +178,17 @@ function renderBlockContent(
       );
     case 'figure':
       return (
-        <figure>
-          <img src={block.imageRef} alt={block.alt || 'Иллюстрация'} />
-          {block.caption && <figcaption><InlineRunRenderer runs={block.caption} onSourceAnchorClick={onSourceAnchorClick} /></figcaption>}
+        <figure className="my-6 text-center">
+          <img src={block.imageRef} alt={block.alt || (typeof block.caption === 'string' ? block.caption : 'Иллюстрация')} className="mx-auto max-w-full rounded-lg shadow-sm" />
+          {block.caption && (
+            <figcaption className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+              {Array.isArray(block.caption) ? (
+                <InlineRunRenderer runs={block.caption} onSourceAnchorClick={onSourceAnchorClick} />
+              ) : (
+                block.caption
+              )}
+            </figcaption>
+          )}
         </figure>
       );
     case 'footnote':

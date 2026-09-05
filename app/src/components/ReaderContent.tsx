@@ -1,6 +1,7 @@
 import type { FC, ReactNode } from 'react';
 import { Sparkles, Quote, Bookmark } from 'lucide-react';
 import type { PageData, ReaderSettings, FootnotePair, ResearchCard } from '../domain/types';
+import { DocumentBlockRenderer } from './ast/DocumentBlockRenderer';
 
 interface ReaderContentProps {
   page: PageData;
@@ -103,6 +104,71 @@ export const ReaderContent: FC<ReaderContentProps> = ({
     return cards.filter(c => c.paragraphId === paraId || (c.pageNumber === page.pageNumber && !c.paragraphId));
   };
 
+  const isHeadingParagraph = (text: string, altText?: string): boolean => {
+    const clean = (text || altText || '').trim();
+    if (clean.length < 4 || clean.length >= 80) return false;
+    // Footnote markers signify body prose with citations
+    if (/(?:\[\d+\]|\^\[\d+\]|[¹²³⁴⁵⁶⁷⁸⁹⁰])/.test(clean)) return false;
+    if (clean.endsWith('.') || clean.includes(';')) return false;
+    // Sentence period (not leading section number) indicates prose
+    const withoutLeadingNumber = clean.replace(/^\d+(\.\d+)*\s*/, '');
+    if (withoutLeadingNumber.includes('.')) return false;
+    if (!/^[A-ZА-ЯЁ0-9]/.test(clean)) return false;
+    const nonHeadingTokens = new Set(['Сп', 'Т', 'Е', 'К', 'С', 'славы', 'в похвалу']);
+    if (nonHeadingTokens.has(clean)) return false;
+    if (altText) {
+      const altClean = altText.trim();
+      if (nonHeadingTokens.has(altClean) || (altClean.length < 4 && !/^[IVXLCDM]+$/.test(altClean))) {
+        return false;
+      }
+      if (altClean.length > 0 && !/^[A-ZА-ЯЁ0-9]/.test(altClean)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // AST V2 structured blocks rendering branch
+  if (page.blocks && page.blocks.length > 0) {
+    return (
+      <article
+        className="mx-auto w-full transition-all duration-200"
+        style={{
+          maxWidth: settings.mode === 'bilingual' ? '1280px' : `${settings.maxWidth}px`,
+          fontFamily: fontFamilyStyle,
+        }}
+      >
+        {page.chapterTitle && (
+          <header className="mb-8 border-b pb-4 text-center sm:mb-12" style={{ borderColor: 'var(--border-subtle)' }}>
+            <h1 className="mt-2 text-xl font-bold tracking-tight sm:text-2xl lg:text-3xl" style={{ color: 'var(--text-primary)' }}>
+              {page.chapterTitle}
+            </h1>
+            <div className="mt-2 flex items-center justify-center space-x-3 text-xs opacity-60" style={{ color: 'var(--text-secondary)' }}>
+              <span>Страница {page.pageNumber}</span>
+              <span>•</span>
+              <span>~{page.readingTimeMinutes || 2} мин на чтение</span>
+            </div>
+          </header>
+        )}
+        <div className="space-y-6">
+          {page.blocks.map((block) => (
+            <DocumentBlockRenderer
+              key={block.id}
+              block={block}
+              onFootnoteClick={(fn) => {
+                const fnId = parseInt(fn.label || '0', 10);
+                const found = page.footnotes.find((f) => f.id === fnId);
+                if (found) {
+                  onSelectFootnote(found);
+                }
+              }}
+            />
+          ))}
+        </div>
+      </article>
+    );
+  }
+
   return (
     <article
       className="mx-auto w-full transition-all duration-200"
@@ -135,7 +201,7 @@ export const ReaderContent: FC<ReaderContentProps> = ({
       {settings.mode === 'ru' && (
         <div className="space-y-6">
           {page.paragraphs.map((para, idx) => {
-            const isHeading = para.en.length < 50 && !para.en.includes('.') && !para.en.includes(';');
+            const isHeading = isHeadingParagraph(para.ru, para.en);
             if (isHeading) {
               return (
                 <h2
@@ -150,7 +216,7 @@ export const ReaderContent: FC<ReaderContentProps> = ({
 
             // Drop cap only on the genuine first body paragraph of a chapter/section start
             const prevPara = idx > 0 ? page.paragraphs[idx - 1] : null;
-            const isAfterHeading = prevPara ? (prevPara.ru.length < 60 && !prevPara.ru.includes('.') && !prevPara.ru.includes(';')) : false;
+            const isAfterHeading = prevPara ? isHeadingParagraph(prevPara.ru, prevPara.en) : false;
             const isChapterStart = Boolean(
               (page.chapterTitle && idx === 0) ||
               isAfterHeading ||
@@ -238,7 +304,7 @@ export const ReaderContent: FC<ReaderContentProps> = ({
 
             {page.paragraphs.map((para) => {
               const isHighlighted = hoveredParagraphId === para.id;
-              const isHeading = para.en.length < 50 && !para.en.includes('.') && !para.en.includes(';');
+              const isHeading = isHeadingParagraph(para.en, para.ru);
 
               if (isHeading) {
                 return (
@@ -317,7 +383,7 @@ export const ReaderContent: FC<ReaderContentProps> = ({
 
             {page.paragraphs.map((para) => {
               const isHighlighted = hoveredParagraphId === para.id;
-              const isHeading = para.en.length < 50 && !para.en.includes('.') && !para.en.includes(';');
+              const isHeading = isHeadingParagraph(para.ru, para.en);
 
               if (isHeading) {
                 return (
@@ -389,7 +455,7 @@ export const ReaderContent: FC<ReaderContentProps> = ({
       {settings.mode === 'en' && (
         <div className="space-y-6">
           {page.paragraphs.map((para, idx) => {
-            const isHeading = para.en.length < 50 && !para.en.includes('.') && !para.en.includes(';');
+            const isHeading = isHeadingParagraph(para.en, para.ru);
             if (isHeading) {
               return (
                 <h2
@@ -403,7 +469,7 @@ export const ReaderContent: FC<ReaderContentProps> = ({
             }
 
             const prevPara = idx > 0 ? page.paragraphs[idx - 1] : null;
-            const isAfterHeading = prevPara ? (prevPara.en.length < 60 && !prevPara.en.includes('.') && !prevPara.en.includes(';')) : false;
+            const isAfterHeading = prevPara ? isHeadingParagraph(prevPara.en, prevPara.ru) : false;
             const isChapterStart = Boolean(
               (page.chapterTitle && idx === 0) ||
               isAfterHeading ||
