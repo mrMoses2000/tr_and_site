@@ -1,15 +1,6 @@
 {
   "schemaVersion": "1.0",
-  "generatedAt": "2026-09-05T13:00:00Z",
   "books": [
-    {
-      "slug": "schreiner-ntt",
-      "title": "Reflections on New Testament Theology",
-      "titleRu": "Размышления о богословии Нового Завета",
-      "author": "Thomas R. Schreiner",
-      "authorRu": "Томас Р. Шрейнер",
-      "totalPages": 22
-    },
     {
       "slug": "ozborn-germenevticheskaya-spiral",
       "title": "Герменевтическая спираль",
@@ -18,11 +9,20 @@
       "authorRu": "Грант Р. Осборн",
       "totalPages": 736,
       "releaseId": "rel-ozborn-germenevticheskaya-spiral-66f63cc7bb9a",
+      "releaseManaged": true,
       "manifestUrl": "/books/ozborn-germenevticheskaya-spiral/releases/rel-ozborn-germenevticheskaya-spiral-66f63cc7bb9a/manifest.json",
       "pagesIndexUrl": "/books/ozborn-germenevticheskaya-spiral/releases/rel-ozborn-germenevticheskaya-spiral-66f63cc7bb9a/pages-index.json",
       "searchIndexUrl": "/books/ozborn-germenevticheskaya-spiral/releases/rel-ozborn-germenevticheskaya-spiral-66f63cc7bb9a/search-index.json",
       "pageChunkPattern": "/books/ozborn-germenevticheskaya-spiral/releases/rel-ozborn-germenevticheskaya-spiral-66f63cc7bb9a/pages/page-{page}.json",
       "scanPattern": "/scans/ozborn-germenevticheskaya-spiral/page_{page}.webp"
+    },
+    {
+      "slug": "schreiner-ntt",
+      "title": "Reflections on New Testament Theology",
+      "titleRu": "Размышления о богословии Нового Завета",
+      "author": "Thomas R. Schreiner",
+      "authorRu": "Томас Р. Шрейнер",
+      "totalPages": 22
     }
   ]
 }

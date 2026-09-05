@@ -103,17 +103,6 @@ export const registeredBooks: Record<string, BookManifest> = {
   },
 };
 
-export const dynamicBookLoaders: Record<string, () => Promise<unknown>> = import.meta.glob(
-  '../books/*/manifest.json',
-  { import: 'default' },
-);
-
-const dynamicBookLoadersBySlug: Record<string, () => Promise<unknown>> = {};
-for (const [path, loader] of Object.entries(dynamicBookLoaders)) {
-  const match = path.match(/(?:^|\/)books\/([^/]+)\/manifest\.json$/);
-  if (match && !dynamicBookLoadersBySlug[match[1]]) dynamicBookLoadersBySlug[match[1]] = loader;
-}
-
 let runtimeCatalogCache = validateCatalog(bundledRuntimeCatalog);
 
 export class UnknownBookError extends Error {
@@ -266,26 +255,6 @@ export const loadBookManifest: BookManifestLoader = async (slug, signal) => {
     const skeleton = manifestFromSummary(catalogEntry);
     registeredBooks[slug] = skeleton;
     return skeleton;
-  }
-
-  const loader = dynamicBookLoadersBySlug[slug];
-  if (loader) {
-    let module: unknown;
-    try {
-      module = await loader();
-    } catch (error) {
-      if (signal?.aborted) throw new BookManifestLoadCancelledError(slug);
-      throw error;
-    }
-    assertNotAborted(slug, signal);
-    const manifest = module && typeof module === 'object' && 'default' in module
-      ? (module as Record<string, unknown>).default
-      : module;
-    if (!isBookManifest(manifest) || !hasConsistentManifestBounds(manifest, slug)) {
-      throw new InvalidBookManifestError(slug);
-    }
-    registeredBooks[slug] = manifest;
-    return manifest;
   }
 
   throw new UnknownBookError(slug);

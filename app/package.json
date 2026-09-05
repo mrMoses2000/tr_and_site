@@ -4,8 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "generate:reader": "node scripts/generate-reader-artifacts.mjs",
+    "predev": "npm run generate:reader",
     "dev": "vite",
+    "prebuild": "npm run generate:reader",
     "build": "tsc -b && vite build",
+    "pretest": "npm run generate:reader",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "oxlint",

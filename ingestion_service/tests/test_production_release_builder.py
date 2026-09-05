@@ -28,6 +28,22 @@ def _runner(command, *, cwd, **_kwargs):
     public = Path(cwd) / "public"
     if public.is_dir():
         shutil.copytree(public, dist, dirs_exist_ok=True)
+    books = []
+    for manifest_path in sorted((Path(cwd) / "src/data/books").glob("*/manifest.json")):
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        books.append({
+            "slug": manifest["slug"],
+            "title": manifest.get("title", manifest["slug"]),
+            "titleRu": manifest.get("titleRu", manifest.get("title", manifest["slug"])),
+            "author": manifest.get("author", "Unknown"),
+            "authorRu": manifest.get("authorRu", "Unknown"),
+            "totalPages": len(manifest.get("pages", [])),
+            "releaseId": manifest.get("releaseId"),
+            "releaseManaged": True,
+        })
+    (dist / "catalog.json").write_text(
+        json.dumps({"schemaVersion": "1.0", "books": books}), encoding="utf-8"
+    )
     return SimpleNamespace(returncode=0, stdout="", stderr="")
 
 
@@ -36,7 +52,7 @@ def _builder(tmp_path: Path) -> tuple[ProductionReleaseBuilder, Path, Path]:
     (app / "src").mkdir(parents=True)
     catalog = app / "src/data/library/generatedCatalog.json"
     catalog.parent.mkdir(parents=True)
-    catalog.write_text('{"schemaVersion":"1","books":[]}', encoding="utf-8")
+    catalog.write_text('{"schemaVersion":"1.0","books":[]}', encoding="utf-8")
     (app / "package.json").write_text('{"scripts":{"build":"vite"}}', encoding="utf-8")
     (app / "checkout-sentinel").write_text("unchanged", encoding="utf-8")
     scans = tmp_path / "scans"
@@ -69,6 +85,7 @@ def test_builder_isolated_and_emits_operational_artifacts(tmp_path: Path) -> Non
     assert (stage / "healthz.json").is_file()
     assert (stage / "release.json").is_file()
     assert (stage / "catalog.json").is_file()
+    assert json.loads((stage / "catalog.json").read_text())["schemaVersion"] == "1.0"
     assert (stage / "books/safe-book/manifest.json").is_file()
     assert (stage / "scans/safe-book/page_1.webp").read_bytes() == b"scan"
     assert json.loads((stage / "manifest.json").read_text())['releaseId'] == identity.release_id

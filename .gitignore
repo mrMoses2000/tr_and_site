@@ -11,6 +11,8 @@ __pycache__/
 dist/
 app/dist/
 dist-ssr/
+app/public/books/
+app/public/catalog.json
 
 # Environment and secrets
 .env
