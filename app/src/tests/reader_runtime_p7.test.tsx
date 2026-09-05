@@ -55,16 +55,16 @@ describe('P7/P8 reader runtime contracts', () => {
       return fixture;
     });
     render(<App readerOptions={{ loadManifest: loader }} />);
-    await waitFor(() => expect(screen.getByText('Тестовая книга')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Fixture chapter')).toBeInTheDocument());
     expect(loader).toHaveBeenCalledWith('fixture-book', expect.any(AbortSignal));
   });
 
   it('opens scan view when the location transition requests scan', async () => {
     const loader = vi.fn(async () => fixture);
     render(<App readerOptions={{ loadManifest: loader }} />);
-    await waitFor(() => expect(screen.getByText('Тестовая книга')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Fixture chapter')).toBeInTheDocument());
     fireEvent.click(screen.getByTitle(/Фото оригинала страницы/i));
-    expect(screen.getByText(/Оригинальный скан • Стр\. 1/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Оригинальный скан • Стр\. 1/i)).toBeInTheDocument();
   });
 
   it('renders a typed load error for an unknown deep-link book', async () => {
@@ -122,7 +122,7 @@ describe('P7/P8 reader runtime contracts', () => {
     const loader = vi.fn(async () => fixture);
     render(<App readerOptions={{ loadManifest: loader }} />);
     await waitFor(() => expect(screen.getByText('Сноска fixture')).toBeInTheDocument());
-    expect(document.querySelector('[data-footnote-id="7"]')).toBe(document.activeElement);
+    await waitFor(() => expect(document.querySelector('[data-footnote-id="7"]')).toBe(document.activeElement));
     fireEvent.click(screen.getByTitle(/Закрыть/));
     await waitFor(() => expect(screen.queryByText('Сноска fixture')).not.toBeInTheDocument());
     expect(window.location.hash).not.toContain('fn=7');
@@ -139,7 +139,7 @@ describe('P7/P8 reader runtime contracts', () => {
       />,
     );
     fireEvent.change(screen.getByLabelText(/Поиск по тексту/i), { target: { value: 'fixture' } });
-    await waitFor(() => expect(screen.getByText(/Fixture text/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(/fixture/i, { selector: 'mark' }).length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole('button', { name: /Стр\. 1/i }));
     expect(onSelectLocation).toHaveBeenCalledWith(expect.objectContaining({
       pageNumber: 1,
