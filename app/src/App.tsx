@@ -197,6 +197,9 @@ export function App({ readerOptions }: AppProps = {}) {
     );
   }
   if (currentPageLoadState === 'error' && !currentPageData) {
+    if (currentPageError?.message?.includes('page index entry not found') || currentPageError?.message?.includes('page index unavailable')) {
+      return <main role="alert">Страница {currentPage} отсутствует в манифесте этой книги.</main>;
+    }
     return (
       <main role="alert">
         Не удалось загрузить страницу {currentPage}: {currentPageError?.message ?? 'неизвестная ошибка'}

@@ -61,7 +61,14 @@ function isPagesIndexFile(value: unknown): value is PagesIndexFile {
 }
 
 function resolveUrl(baseUrl: string, url: string): string {
-  return new URL(url, baseUrl).toString();
+  try {
+    return new URL(url, baseUrl).toString();
+  } catch {
+    const dummyOrigin = 'https://logos.invalid';
+    const base = new URL(baseUrl, dummyOrigin);
+    const resolved = new URL(url, base);
+    return resolved.pathname + resolved.search + resolved.hash;
+  }
 }
 
 async function fetchJson<T>(

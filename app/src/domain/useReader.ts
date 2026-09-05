@@ -198,7 +198,7 @@ export function useReader(options: UseReaderOptions = {}) {
   const pageRepository = useMemo(() => {
     if (!manifest) return null;
     return createManifestPageRepository(manifest);
-  }, [manifest?.slug, manifest?.releaseId, manifest?.pagesIndexUrl, manifest?.pages.length]);
+  }, [manifest]);
 
   useEffect(() => {
     if (!manifest) {
@@ -211,6 +211,13 @@ export function useReader(options: UseReaderOptions = {}) {
     const cachedPage = manifest.pages.find((page) => page.pageNumber === currentPage);
     if (cachedPage) {
       setLoadedPageData(cachedPage);
+      setCurrentPageLoadState('ready');
+      setCurrentPageError(null);
+      return;
+    }
+
+    if (!manifest.pagesIndexUrl) {
+      setLoadedPageData(null);
       setCurrentPageLoadState('ready');
       setCurrentPageError(null);
       return;
@@ -394,6 +401,7 @@ export function useReader(options: UseReaderOptions = {}) {
     setIsScanOpen(location.view === 'scan');
   }, [location.view]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const availableBooks = useMemo(() => getAllBooksSummary(), [catalogRevision]);
   const progress = useMemo(
     () => calculateProgressFromBounds(

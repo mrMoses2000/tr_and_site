@@ -315,7 +315,7 @@ export function migrateLegacyStorage(backend: Storage): MigrationResult {
       migratedCardsCount,
       unassignedCardsCount,
     };
-  } catch (err) {
+  } catch {
     return { migrated: false, alreadyMigrated: false };
   }
 }

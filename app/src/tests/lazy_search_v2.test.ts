@@ -115,9 +115,14 @@ describe('Phase P8: Search Engine V2', () => {
     const postedMessages: Array<Record<string, unknown>> = [];
 
     class MockWorker {
+      public scriptURL: URL;
+      public options: unknown;
       private readonly listeners = new Set<(event: MessageEvent) => void>();
 
-      constructor(public scriptURL: URL, public options: unknown) {}
+      constructor(scriptURL: URL, options: unknown) {
+        this.scriptURL = scriptURL;
+        this.options = options;
+      }
 
       addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
         if (type !== 'message' || typeof listener !== 'function') return;

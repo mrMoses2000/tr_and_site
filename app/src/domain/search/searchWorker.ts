@@ -1,4 +1,4 @@
-import { searchCorpusV2, type SearchCorpusEntry, type SearchOptions } from './searchEngineV2';
+import { searchCorpusV2, type SearchCorpusEntry } from './searchEngineV2';
 
 export interface SearchIndexFile {
   schemaVersion: '1.0';
@@ -107,7 +107,7 @@ async function loadSearchIndex(searchIndexUrl: string, signal?: AbortSignal): Pr
 }
 
 function emit(message: SearchWorkerResponse): void {
-  (self as DedicatedWorkerGlobalScope).postMessage(message);
+  (self as unknown as { postMessage: (msg: unknown) => void }).postMessage(message);
 }
 
 async function handleSearch(message: SearchWorkerSearchMessage): Promise<void> {
