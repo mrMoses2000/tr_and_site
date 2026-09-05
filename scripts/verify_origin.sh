@@ -43,7 +43,7 @@ FREE_KIB="$(df -Pk -- "$RELEASE_ROOT" | awk 'NR==2 {print $4}')"
 
 if [[ -f "$CONFIG_DIR/Caddyfile" ]]; then
   grep -Eq "^[[:space:]]*http://127\\.0\\.0\\.1:$ORIGIN_PORT[[:space:]]*\\{[[:space:]]*$" "$CONFIG_DIR/Caddyfile" || die 'Caddy site address is not loopback-only'
-  grep -Eq '^[[:space:]]*bind[[:space:]]+127\\.0\\.0\\.1[[:space:]]*$' "$CONFIG_DIR/Caddyfile" || die 'Caddy bind directive is not loopback-only'
+  grep -Eq '^[[:space:]]*bind[[:space:]]+127\.0\.0\.1[[:space:]]*$' "$CONFIG_DIR/Caddyfile" || die 'Caddy bind directive is not loopback-only'
 fi
 if command -v caddy >/dev/null && [[ -f "$CONFIG_DIR/Caddyfile" ]]; then
   caddy validate --config "$CONFIG_DIR/Caddyfile" --adapter caddyfile
