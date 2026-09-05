@@ -23,6 +23,10 @@ class ReleaseAlreadyExistsError(ReleasePromotionError):
     """Raised instead of replacing an immutable release directory."""
 
 
+class ReleaseBaseChangedError(ReleasePromotionError):
+    """Raised when a candidate was built from a stale current release."""
+
+
 class ReleasePromoter:
     """
     Validates and promotes immutable releases under both thread and process locks.
@@ -119,12 +123,19 @@ class ReleasePromoter:
             raise ReleasePromotionError(f"Release pointer target is not a directory: {target}")
         return target
 
+    def current_release(self) -> Optional[Path]:
+        """Return the validated current release target, if one is published."""
+        return self._existing_pointer_target(self.current_pointer_path)
+
     def promote(
         self,
         job_id: str,
         slug: str,
         release_id: str,
         lease_checker: Callable[[], bool],
+        *,
+        expected_current_release_id: Optional[str] = None,
+        enforce_expected_current: bool = False,
     ) -> Path:
         validate_component(job_id, "job_id")
         validate_component(slug, "slug", slug=True)
@@ -133,6 +144,15 @@ class ReleasePromoter:
         with self._promotion_lock():
             # Check before validation and again immediately before publication.
             self._assert_lease(lease_checker)
+
+            if enforce_expected_current:
+                current = self.current_release()
+                actual_current_id = current.name if current is not None else None
+                if actual_current_id != expected_current_release_id:
+                    raise ReleaseBaseChangedError(
+                        "Current release changed while candidate was building: "
+                        f"expected {expected_current_release_id!r}, got {actual_current_id!r}"
+                    )
 
             stage_path = self.staging_mgr.get_stage_path(job_id)
             manifest = self.validator.validate_staged_release(stage_path)

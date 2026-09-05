@@ -51,6 +51,30 @@ The publisher writes to a per-job staging directory, validates checksums and
 manifest boundaries, then atomically switches `/srv/logos/current`. Never copy
 files into `current` by hand.
 
+For the first known-good release, use the same fenced builder/promoter path.
+The command requires an explicit confirmation and builds in `/srv/logos`, not
+in the checkout:
+
+```bash
+python scripts/build_release.py \
+  --confirm-seed \
+  --job-id seed-osborne-v1 \
+  --slug ozborn-germenevticheskaya-spiral \
+  --release-id seed-osborne-v1 \
+  --checkout-root "$PWD" \
+  --app-dir "$PWD/app" \
+  --staging-dir /srv/logos/staging \
+  --releases-dir /srv/logos/releases \
+  --current-pointer /srv/logos/current \
+  --workspace-root /srv/logos/build-work \
+  --scans-dir "$PWD/app/public/scans/ozborn-germenevticheskaya-spiral" \
+  --manifest-json "$PWD/app/src/data/books/ozborn-germenevticheskaya-spiral/manifest.json"
+```
+
+Do not use `--skip-tests` for a production seed. A later publication inherits
+validated runtime-only books from `current`; an optimistic pointer check stops
+a stale concurrent build instead of dropping a newer book.
+
 ```bash
 curl --fail --silent --show-error -D - http://127.0.0.1:8080/healthz -o /tmp/logos-health.json
 curl --fail --silent --show-error -I http://127.0.0.1:8080/index.html

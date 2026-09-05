@@ -32,6 +32,29 @@ class ProductionReleaseBuilderUnavailable(ReleaseBuildError):
     """The real shell/build integration is intentionally not enabled yet."""
 
 
+def assert_paths_outside_checkout(
+    active_checkout: Path | str,
+    paths: Mapping[str, Path | str],
+) -> None:
+    """Reject publication paths inside checkout before constructors create them."""
+    checkout = Path(active_checkout)
+    if checkout.is_symlink() or not checkout.is_dir():
+        raise ReleasePathError(
+            f"Active checkout must be an existing non-symlink directory: {checkout}"
+        )
+    checkout = checkout.resolve(strict=True)
+    for label, raw_path in paths.items():
+        candidate = Path(raw_path)
+        if candidate.is_symlink():
+            raise ReleasePathError(f"{label} path cannot be a symlink: {candidate}")
+        resolved = candidate.resolve(strict=False)
+        try:
+            resolved.relative_to(checkout)
+        except ValueError:
+            continue
+        raise ReleasePathError(f"{label} directory must be outside active checkout: {resolved}")
+
+
 @dataclass(frozen=True, slots=True)
 class ReleaseIdentity:
     """Stable identity shared by a job, book slug, and immutable release."""
@@ -67,6 +90,8 @@ class PreparedRelease:
     identity: ReleaseIdentity
     stage_path: Path
     manifest: ReleaseManifest
+    expected_current_release_id: str | None = None
+    enforce_expected_current: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +153,14 @@ class StagedPublicationAdapter:
         if checkout.is_symlink() or not checkout.exists() or not checkout.is_dir():
             raise ReleasePathError(f"Active checkout must be an existing non-symlink directory: {checkout}")
         self.active_checkout = checkout.resolve(strict=True)
+        assert_paths_outside_checkout(
+            self.active_checkout,
+            {
+                "staging": self.staging.staging_base_dir,
+                "releases": self.promoter.releases_dir,
+                "current pointer": self.promoter.current_pointer_path.parent,
+            },
+        )
         self._assert_outside_checkout(self.staging.staging_base_dir, "staging")
         self._assert_outside_checkout(self.promoter.releases_dir, "releases")
         self._assert_outside_checkout(self.promoter.current_pointer_path.parent, "current pointer")
@@ -200,6 +233,10 @@ class StagedPublicationAdapter:
                 identity=identity,
                 stage_path=stage_path.resolve(strict=True),
                 manifest=manifest,
+                expected_current_release_id=getattr(builder, "base_release_id", None),
+                enforce_expected_current=bool(
+                    getattr(builder, "enforce_expected_current", False)
+                ),
             )
         except Exception:
             # A failed candidate is disposable; current/previous are untouched.
@@ -235,5 +272,7 @@ class StagedPublicationAdapter:
             slug=prepared.identity.slug,
             release_id=prepared.identity.release_id,
             lease_checker=self._lease_checker(execution_context),
+            expected_current_release_id=prepared.expected_current_release_id,
+            enforce_expected_current=prepared.enforce_expected_current,
         )
         return PublishedRelease(identity=prepared.identity, release_path=release_path)

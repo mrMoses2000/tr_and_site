@@ -148,4 +148,52 @@ class ReleaseValidator:
                 "Manifest pageRange does not exactly match pages/pageNumber entries"
             )
 
+        catalog_file = stage_path / "catalog.json"
+        if catalog_file.exists():
+            try:
+                catalog = json.loads(catalog_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise ReleaseValidationError(f"Invalid catalog.json: {exc}") from exc
+            books = catalog.get("books") if isinstance(catalog, dict) else None
+            if (
+                not isinstance(catalog, dict)
+                or catalog.get("schemaVersion") != "1"
+                or not isinstance(books, list)
+            ):
+                raise ReleaseValidationError("Invalid catalog.json contract")
+            catalog_slugs: set[str] = set()
+            for book in books:
+                if not isinstance(book, dict) or not isinstance(book.get("slug"), str):
+                    raise ReleaseValidationError("Invalid book entry in catalog.json")
+                slug = book["slug"]
+                if slug in catalog_slugs:
+                    raise ReleaseValidationError(f"Duplicate catalog book slug: {slug}")
+                catalog_slugs.add(slug)
+                if book.get("releaseManaged") is not True:
+                    continue
+                try:
+                    book_manifest_path = resolve_contained_path(
+                        stage_path, f"books/{slug}/manifest.json"
+                    )
+                except ReleasePathError as exc:
+                    raise ReleaseValidationError(str(exc)) from exc
+                if not book_manifest_path.is_file():
+                    raise ReleaseValidationError(
+                        f"Managed catalog book has no manifest: {slug}"
+                    )
+                try:
+                    book_manifest = json.loads(book_manifest_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError) as exc:
+                    raise ReleaseValidationError(
+                        f"Invalid managed book manifest for {slug}: {exc}"
+                    ) from exc
+                if not isinstance(book_manifest, dict) or book_manifest.get("slug") != slug:
+                    raise ReleaseValidationError(
+                        f"Managed book manifest slug mismatch: {slug}"
+                    )
+                if str(book_manifest_path.relative_to(stage_path)) not in seen_paths:
+                    raise ReleaseValidationError(
+                        f"Managed book manifest is missing from checksums: {slug}"
+                    )
+
         return manifest

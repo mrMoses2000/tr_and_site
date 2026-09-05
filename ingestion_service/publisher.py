@@ -4,13 +4,68 @@ import subprocess
 import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Mapping
 from .config import APP_DIR, APP_PUBLIC_SCANS_DIR, APP_DATA_DIR
 
 logger = logging.getLogger(__name__)
 
 class PublisherError(Exception):
     pass
+
+
+def build_manifest_data(
+    slug: str,
+    metadata: Mapping[str, Any],
+    pages: List[Dict[str, Any]],
+    *,
+    release_id: str | None = None,
+) -> Dict[str, Any]:
+    """Build a reader manifest without writing to the active checkout.
+
+    The ingestion pipeline still exposes the historical V1-shaped fields for
+    the current reader.  The release contract fields are included alongside
+    them so the staged validator can fence a complete artifact and the V2
+    reader can migrate without rewriting every existing book at once.
+    """
+    formatted_pages = []
+    for page in pages:
+        page_copy = dict(page)
+        page_number = page_copy.get("pageNumber", 1)
+        page_copy["imageSrc"] = f"/scans/{slug}/page_{page_number}.webp"
+        formatted_pages.append(page_copy)
+
+    total_pages = len(formatted_pages)
+    start_page = formatted_pages[0]["pageNumber"] if formatted_pages else 1
+    end_page = formatted_pages[-1]["pageNumber"] if formatted_pages else 1
+    toc = metadata.get("tableOfContents") or metadata.get("toc") or []
+    if not toc:
+        toc = [{
+            "pageNumber": start_page,
+            "titleEn": "Chapter 1",
+            "titleRu": "Глава 1",
+            "level": 1,
+        }]
+
+    return {
+        "schemaVersion": "2.0",
+        "releaseId": release_id or f"rel-{slug}-unpublished",
+        "slug": slug,
+        "title": metadata.get("title", slug),
+        "titleRu": metadata.get("titleRu") or metadata.get("title", slug),
+        "subtitle": metadata.get("subtitle", ""),
+        "subtitleRu": metadata.get("subtitleRu", ""),
+        "author": metadata.get("author", "Unknown"),
+        "authorRu": metadata.get("authorRu") or metadata.get("author", "Неизвестный автор"),
+        "publisher": metadata.get("publisher", ""),
+        "targetLanguage": metadata.get("targetLanguage", "kk"),
+        "sourceLanguage": metadata.get("sourceLanguage", "auto"),
+        "startPage": start_page,
+        "endPage": end_page,
+        "totalPages": total_pages,
+        "pageRange": {"start": start_page, "end": end_page},
+        "tableOfContents": toc,
+        "pages": formatted_pages,
+    }
 
 class BookPublisher:
     """
@@ -42,40 +97,10 @@ class BookPublisher:
             for scan_file in scans_source_dir.glob("*.webp"):
                 shutil.copy2(scan_file, target_scans_dir / scan_file.name)
 
-        # 2. Update imageSrc in pages to match /scans/{slug}/page_{num}.webp
-        formatted_pages = []
-        for p in pages:
-            page_copy = dict(p)
-            p_num = page_copy.get("pageNumber", 1)
-            page_copy["imageSrc"] = f"/scans/{slug}/page_{p_num}.webp"
-            formatted_pages.append(page_copy)
-
-        # 3. Assemble book manifest
-        total_pages = len(formatted_pages)
-        start_page = formatted_pages[0]["pageNumber"] if formatted_pages else 1
-        end_page = formatted_pages[-1]["pageNumber"] if formatted_pages else 1
-
-        toc = metadata.get("toc") or []
-        if not toc:
-            toc = [{"pageNumber": 1, "titleEn": "Chapter 1", "titleRu": "Глава 1", "level": 1}]
-
-        manifest = {
-            "slug": slug,
-            "title": metadata.get("title", slug),
-            "titleRu": metadata.get("titleRu") or metadata.get("title", slug),
-            "subtitle": metadata.get("subtitle", ""),
-            "subtitleRu": metadata.get("subtitleRu", ""),
-            "author": metadata.get("author", "Unknown"),
-            "authorRu": metadata.get("authorRu") or metadata.get("author", "Неизвестный автор"),
-            "publisher": metadata.get("publisher", ""),
-            "targetLanguage": metadata.get("targetLanguage", "kk"),
-            "sourceLanguage": metadata.get("sourceLanguage", "auto"),
-            "startPage": start_page,
-            "endPage": end_page,
-            "totalPages": total_pages,
-            "tableOfContents": toc,
-            "pages": formatted_pages
-        }
+        # 3. Assemble book manifest.  This method intentionally preserves its
+        # historical checkout-writing behavior; production uses the staged
+        # builder below the release boundary.
+        manifest = build_manifest_data(slug, metadata, pages)
 
         # 4. Save manifest in app/src/data/books/{slug}/manifest.json
         target_book_dir = self.books_data_dir / slug

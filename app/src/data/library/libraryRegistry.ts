@@ -1,5 +1,6 @@
 import type { BookManifest } from '../../domain/types';
 import { bookManifest as schreinerManifest } from '../bookManifest';
+import generatedCatalog from './generatedCatalog.json';
 
 export interface BookSummary {
   slug: string;
@@ -11,24 +12,9 @@ export interface BookSummary {
 }
 
 // Lightweight static summary registry for instant catalog load without 6MB bundle overhead
-export const bookSummaries: Record<string, BookSummary> = {
-  'schreiner-ntt': {
-    slug: 'schreiner-ntt',
-    title: schreinerManifest.title,
-    titleRu: schreinerManifest.titleRu,
-    author: schreinerManifest.author,
-    authorRu: schreinerManifest.authorRu || schreinerManifest.author,
-    totalPages: schreinerManifest.totalPages,
-  },
-  'ozborn-germenevticheskaya-spiral': {
-    slug: 'ozborn-germenevticheskaya-spiral',
-    title: 'Герменевтическая спираль',
-    titleRu: 'Герменевтическая спираль',
-    author: 'Grant R. Osborne',
-    authorRu: 'Грант Р. Осборн',
-    totalPages: 736,
-  },
-};
+export const bookSummaries: Record<string, BookSummary> = Object.fromEntries(
+  generatedCatalog.books.map((book) => [book.slug, book]),
+);
 
 // Base in-memory manifest cache
 export const registeredBooks: Record<string, BookManifest> = {

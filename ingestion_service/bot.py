@@ -28,8 +28,13 @@ from .config import (
 from .jobs.repository import DuplicateSourceError, JobRepository, JobState, sha256_file
 from .jobs.worker import IngestionWorker, JobExecutionContext
 from .pipeline import IngestionPipeline
+from .agy_bridge import AgyCliBridge
 from .pdf_extractor import PDFExtractor, slugify_cyrillic
 from .lang_detector import detect_language, get_language_options
+from .release import StagedPublicationAdapter, assert_paths_outside_checkout
+from .release.publication import StagedReleasePublicationPort
+from .release.promoter import ReleasePromoter
+from .release.staging import StagingManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -155,6 +160,51 @@ async def safe_edit_message(
 dp = Dispatcher()
 pipeline = IngestionPipeline()
 _job_repository: Optional[JobRepository] = None
+
+
+def build_production_pipeline(settings: Settings) -> IngestionPipeline:
+    """Construct the fenced production pipeline from explicit host paths.
+
+    The default paths match the Ubuntu origin runbook.  No publication object
+    is created at import time, and missing/unwritable origin configuration
+    fails closed during bot startup instead of silently writing ``app/``.
+    """
+    release_root = Path(os.getenv("LOGOS_RELEASE_ROOT", "/srv/logos"))
+    app_dir = Path(os.getenv("LOGOS_APP_DIR", str(BASE_DIR / "app")))
+    assert_paths_outside_checkout(
+        BASE_DIR,
+        {
+            "release root": release_root,
+            "build workspace": Path(
+                os.getenv("LOGOS_BUILD_WORK_ROOT", str(release_root / "build-work"))
+            ),
+        },
+    )
+    staging = StagingManager(release_root / "staging")
+    promoter = ReleasePromoter(
+        release_root / "releases",
+        release_root / "current",
+        staging,
+    )
+    adapter = StagedPublicationAdapter(
+        staging,
+        promoter,
+        # Fence against the repository root, not just ``app/``.  A release
+        # directory accidentally placed beside app/ must never become a live
+        # checkout write.
+        active_checkout=BASE_DIR,
+    )
+    publication = StagedReleasePublicationPort(
+        adapter,
+        app_dir=app_dir,
+        workspace_root=Path(os.getenv("LOGOS_BUILD_WORK_ROOT", str(release_root / "build-work"))),
+        public_base_url=os.getenv("LOGOS_PUBLIC_BASE_URL", ""),
+        npm_bin=os.getenv("NPM_BIN", "npm"),
+    )
+    return IngestionPipeline(
+        bridge=AgyCliBridge(agy_bin=settings.agy_bin),
+        publication_port=publication,
+    )
 
 
 def get_job_repository() -> JobRepository:
@@ -526,6 +576,8 @@ async def handle_document(message: types.Message, bot: Bot):
 
 async def main():
     settings = validate_config()
+    global pipeline
+    pipeline = build_production_pipeline(settings)
     repository = get_job_repository()
     repository.init_schema()
     bot = Bot(token=settings.telegram_bot_token)

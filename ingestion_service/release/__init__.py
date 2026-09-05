@@ -12,7 +12,10 @@ from .adapter import (
     ReleaseIdentity,
     StagedPublicationAdapter,
     UnavailableReleaseBuilder,
+    assert_paths_outside_checkout,
 )
+from .builder import ProductionReleaseBuilder
+from .publication import StagedReleasePublicationPort
 
 __all__ = [
     "ExecutionContext",
@@ -26,4 +29,7 @@ __all__ = [
     "ReleaseIdentity",
     "StagedPublicationAdapter",
     "UnavailableReleaseBuilder",
+    "assert_paths_outside_checkout",
+    "ProductionReleaseBuilder",
+    "StagedReleasePublicationPort",
 ]

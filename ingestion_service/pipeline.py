@@ -23,6 +23,21 @@ class PublicationPort(Protocol):
         """Publish a validated staged release and return its public URL."""
 
 
+class JobPublicationPort(Protocol):
+    async def publish_job(
+        self,
+        *,
+        job_id: str,
+        slug: str,
+        metadata: Dict[str, Any],
+        pages: List[Dict[str, Any]],
+        scans_source_dir: Path,
+        execution_context: "JobExecutionContext",
+        on_phase: Callable[[str, str], Awaitable[None]],
+    ) -> str:
+        """Build and publish one exact job release under a live lease."""
+
+
 class PublicationUnavailableError(RuntimeError):
     """Raised until the P6/P11 atomic release adapter is configured."""
 
@@ -55,7 +70,10 @@ class IngestionPipeline:
         job = get_job(job_id)
         if not job:
             raise ValueError(f"Job {job_id} not found in database")
-        if self.publisher is None or self.publication_port is None:
+        staged_port = self.publication_port if callable(getattr(self.publication_port, "publish_job", None)) else None
+        if staged_port is not None and execution_context is None:
+            raise TypeError("staged publication requires JobExecutionContext")
+        if staged_port is None and (self.publisher is None or self.publication_port is None):
             raise PublicationUnavailableError(
                 "No staged release publisher configured; publication is disabled until P6/P11."
             )
@@ -190,7 +208,9 @@ class IngestionPipeline:
 
             metadata["targetLanguage"] = target_lang
 
-            # Step 3: Compiling manifest & running Vitest Quality Gate
+            # Step 3: Compile and validate in a per-job staged release.  The
+            # job-aware port owns the production builder and never calls the
+            # legacy checkout-writing BookPublisher.
             if execution_context:
                 execution_context.assert_active()
             await notify(
@@ -199,33 +219,47 @@ class IngestionPipeline:
                 total_pages,
                 total_pages
             )
-            await self.publisher.compile_manifest(
-                slug=slug,
-                metadata=metadata,
-                pages=all_pages,
-                scans_source_dir=scans_dir
-            )
+            if staged_port is not None:
+                # ProductionReleaseBuilder runs the quality gate in its
+                # isolated workspace before the stage can be promoted.
+                live_url = await staged_port.publish_job(
+                    job_id=job_id,
+                    slug=slug,
+                    metadata=metadata,
+                    pages=all_pages,
+                    scans_source_dir=scans_dir,
+                    execution_context=execution_context,
+                    on_phase=lambda status, text: notify(
+                        status, text, total_pages, total_pages
+                    ),
+                )
+            else:
+                await self.publisher.compile_manifest(
+                    slug=slug,
+                    metadata=metadata,
+                    pages=all_pages,
+                    scans_source_dir=scans_dir
+                )
 
-            if execution_context:
-                execution_context.assert_active()
-            await notify(
-                "TESTING",
-                "🧪 Запуск Vitest: проверка регрессий и целостности...",
-                total_pages,
-                total_pages
-            )
-            await self.publisher.run_quality_gate()
+                if execution_context:
+                    execution_context.assert_active()
+                await notify(
+                    "TESTING",
+                    "🧪 Запуск Vitest: проверка регрессий и целостности...",
+                    total_pages,
+                    total_pages
+                )
+                await self.publisher.run_quality_gate()
 
-            # Step 4: Publication through an injected staged-release port.
-            await notify(
-                "PUBLISHING",
-                "🚀 Публикация подготовленного staged-релиза...",
-                total_pages,
-                total_pages
-            )
-            if execution_context:
-                execution_context.assert_active()
-            live_url = await self.publication_port.publish(slug)
+                await notify(
+                    "PUBLISHING",
+                    "🚀 Публикация подготовленного staged-релиза...",
+                    total_pages,
+                    total_pages
+                )
+                if execution_context:
+                    execution_context.assert_active()
+                live_url = await self.publication_port.publish(slug)
 
             # Step 5: Completed
             await notify(
