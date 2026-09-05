@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import stat
 import subprocess
@@ -52,6 +53,12 @@ def test_caddy_template_keeps_assets_file_only_and_binds_loopback() -> None:
     assert "http://127.0.0.1:__ORIGIN_PORT__" in template
     assert "\tbind 127.0.0.1\n" in template
     assert "@static_asset path_regexp" in template
+    assert "[A-Za-z0-9_-]{8,64}" in template
+    hashed_pattern = re.compile(
+        r"^/assets/[^/]+-[A-Za-z0-9_-]{8,64}\.(js|css|json|webp|png|jpe?g|svg|pdf|m4a|vtt|woff2?|ttf|otf)$"
+    )
+    assert hashed_pattern.fullmatch("/assets/manifest-Bp5tp0zi.js")
+    assert not hashed_pattern.fullmatch("/books/reader-manual.pdf")
     assert "handle @static_asset" in template
     assert "try_files {path} /index.html" in template
     static_block = template.split("handle @static_asset", 1)[1].split("# Shell", 1)[0]
