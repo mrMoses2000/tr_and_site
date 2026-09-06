@@ -24,7 +24,8 @@ export interface PageV2RendererProps {
 }
 
 function runContent(run: InlineRun): ReactNode {
-  let content: ReactNode = run.text;
+  const text = (run.text || '').replace(/\u001e/g, '-');
+  let content: ReactNode = text;
   const marks = run.marks ?? [];
 
   if (marks.includes('superscript')) content = <sup>{content}</sup>;
@@ -199,14 +200,17 @@ function renderBlockContent(
           </table>
         </div>
       );
-    case 'figure':
+    case 'figure': {
+      const isRenderableImage = Boolean(block.imageRef && !block.imageRef.startsWith('pdf-page://'));
       return (
         <figure className="my-8 overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 shadow-sm transition-all duration-200 hover:shadow-md text-center">
-          <img
-            src={block.imageRef}
-            alt={block.alt || (typeof block.caption === 'string' ? block.caption : 'Иллюстрация')}
-            className="mx-auto max-h-[500px] w-auto max-w-full rounded-lg object-contain shadow-xs"
-          />
+          {isRenderableImage && (
+            <img
+              src={block.imageRef}
+              alt={block.alt || (typeof block.caption === 'string' ? block.caption : 'Иллюстрация')}
+              className="mx-auto max-h-[500px] w-auto max-w-full rounded-lg object-contain shadow-xs"
+            />
+          )}
           {block.caption && (
             <figcaption className="mt-3 border-t border-[var(--border-subtle)]/60 pt-2.5 text-center text-xs font-medium tracking-wide text-[var(--text-secondary)]">
               {Array.isArray(block.caption) ? (
@@ -218,6 +222,7 @@ function renderBlockContent(
           )}
         </figure>
       );
+    }
     case 'footnote':
       return (
         <aside aria-label={`Сноска ${block.label}`} data-footnote-anchors={block.anchors.join(' ')} className="my-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-secondary)]/30 p-3 text-xs text-[var(--text-secondary)]">

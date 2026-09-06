@@ -57,6 +57,24 @@ def normalize_text(raw_text: str) -> ReversibleNormalization:
             "control_char_hyphen",
             lambda m: (f"{m.group(1)}-{m.group(2)}", "\x1e"),
         ),
+        # 6. Range separator at start of span: \x1e11 -> –11
+        (
+            re.compile(r"^(?:\x1e|#)(\d+)"),
+            "range_separator_normalization",
+            lambda m: (f"–{m.group(1)}", m.group(0)[:-len(m.group(1))]),
+        ),
+        # 7. Control-char compound suffix at start of span: \x1eвторых -> -вторых
+        (
+            re.compile(r"^(?:\x1e|#)([а-яА-ЯёЁa-zA-Z]+)"),
+            "control_char_hyphen",
+            lambda m: (f"-{m.group(1)}", m.group(0)[:-len(m.group(1))]),
+        ),
+        # 8. Fallback for any remaining unhandled \x1e or #
+        (
+            re.compile(r"[\x1e#]"),
+            "control_char_hyphen",
+            lambda m: ("-", m.group(0)),
+        ),
     ]
 
     for pat, kind, rep_fn in patterns:

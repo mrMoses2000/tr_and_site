@@ -84,7 +84,7 @@ class DocumentAstBuilder:
                         }],
                     })
 
-        separator_pattern = re.compile(r"(?P<separator>#\n?|\x1e\n?|-\n)$")
+        separator_pattern = re.compile(r"(?P<separator>#\n?|\x1e\n?|-\n?)$")
         word_pattern = re.compile(r"[а-яА-ЯёЁa-zA-Z]+")
         for previous, following in zip(runs, runs[1:]):
             if not previous.text or not following.text:
@@ -264,32 +264,45 @@ class DocumentAstBuilder:
 
             blk_id = f"blk-{slug}-p{page_index}-fig-{c_idx}"
             caption_runs: List[InlineRun] = []
-            for l_idx, line in enumerate(cap_b.get("lines", [])):
-                for s_idx, span in enumerate(line.get("spans", [])):
-                    stext = span.get("text", "")
-                    if not stext:
-                        continue
-                    flags = span.get("flags", 0)
-                    marks: List[str] = []
-                    if flags & 2:
-                        marks.append("italic")
-                    if flags & 16 or "bold" in span.get("font", "").lower():
-                        marks.append("bold")
-                    cand_hash = f"cand-p{page_index}-{hashlib.sha256(stext.encode('utf-8')).hexdigest()[:8]}"
-                    run = InlineRun(
-                        id=f"{blk_id}-cap-r{l_idx}_{s_idx}",
-                        text=stext,
-                        language="ru",
-                        marks=marks if marks else None,
-                        source=SourceAnchor(
-                            sourceSha256=source_hash,
-                            pdfPageIndex=page_index,
-                            bbox=[float(v) for v in span.get("bbox", ())],
-                            extractionMethod="native",
-                            candidateHash=cand_hash,
-                        ),
-                    )
-                    caption_runs.append(run)
+            caption_blocks = [cap_b]
+            for cb_idx, cb in enumerate(caption_blocks):
+                cb_lines = cb.get("lines", [])
+                num_cb_lines = len(cb_lines)
+                for l_idx, line in enumerate(cb_lines):
+                    spans = [s for s in line.get("spans", []) if s.get("text")]
+                    num_spans = len(spans)
+                    for s_idx, span in enumerate(spans):
+                        stext = span.get("text", "")
+                        if not stext:
+                            continue
+                        if s_idx == num_spans - 1 and l_idx < num_cb_lines - 1:
+                            if not re.search(r"[\x1e#\-\u2010\u2011\u00ad]$", stext) and not stext.endswith(" "):
+                                next_line_spans = [s for s in cb_lines[l_idx + 1].get("spans", []) if s.get("text")]
+                                if next_line_spans:
+                                    next_first = next_line_spans[0].get("text", "")
+                                    if not next_first.startswith(" ") and not next_first.startswith(("\x1e", "#")):
+                                        stext += " "
+                        flags = span.get("flags", 0)
+                        marks: List[str] = []
+                        if flags & 2:
+                            marks.append("italic")
+                        if flags & 16 or "bold" in span.get("font", "").lower():
+                            marks.append("bold")
+                        cand_hash = f"cand-p{page_index}-{hashlib.sha256(stext.encode('utf-8')).hexdigest()[:8]}"
+                        run = InlineRun(
+                            id=f"{blk_id}-cap-r{l_idx}_{s_idx}",
+                            text=stext,
+                            language="ru",
+                            marks=marks if marks else None,
+                            source=SourceAnchor(
+                                sourceSha256=source_hash,
+                                pdfPageIndex=page_index,
+                                bbox=[float(v) for v in span.get("bbox", ())],
+                                extractionMethod="native",
+                                candidateHash=cand_hash,
+                            ),
+                        )
+                        caption_runs.append(run)
 
             normalize_runs_fn(caption_runs, blk_id, normalization_provenance)
 
@@ -588,11 +601,21 @@ class DocumentAstBuilder:
             max_font_size = 0.0
 
             full_block_text = ""
+            num_lines = len(lines)
             for l_idx, line in enumerate(lines):
-                for s_idx, span in enumerate(line.get("spans", [])):
+                spans = [s for s in line.get("spans", []) if s.get("text")]
+                num_spans = len(spans)
+                for s_idx, span in enumerate(spans):
                     stext = span.get("text", "")
                     if not stext:
                         continue
+                    if s_idx == num_spans - 1 and l_idx < num_lines - 1:
+                        if not re.search(r"[\x1e#\-\u2010\u2011\u00ad]$", stext) and not stext.endswith(" "):
+                            next_line_spans = [s for s in lines[l_idx + 1].get("spans", []) if s.get("text")]
+                            if next_line_spans:
+                                next_first = next_line_spans[0].get("text", "")
+                                if not next_first.startswith(" ") and not next_first.startswith(("\x1e", "#")):
+                                    stext += " "
                     full_block_text += stext + " "
                     fsize = float(span.get("size", 10.0))
                     if fsize > max_font_size:
