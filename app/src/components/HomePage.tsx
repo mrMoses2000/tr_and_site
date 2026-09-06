@@ -56,13 +56,12 @@ export const HomePage: FC<HomePageProps> = ({
           {/* Brand Logo & Editorial Title */}
           <div className="flex items-center space-x-3">
             <div
-              className="flex h-9 w-9 items-center justify-center rounded-lg shadow-xs"
+              className="flex h-10 w-10 items-center justify-center rounded-xl shadow-xs overflow-hidden"
               style={{
-                backgroundColor: 'var(--accent)',
-                color: '#ffffff',
+                backgroundColor: 'transparent',
               }}
             >
-              <span className="font-serif text-lg font-bold">Л</span>
+              <img src="/favicon.svg" alt="Логос" className="h-full w-full object-contain" />
             </div>
             <div className="flex flex-col">
               <span className="font-serif text-base font-bold tracking-tight">
@@ -72,7 +71,7 @@ export const HomePage: FC<HomePageProps> = ({
                 className="text-[11px] font-medium tracking-wide uppercase opacity-65"
                 style={{ color: 'var(--text-secondary)' }}
               >
-                Академический цифровой корпус
+                Библейский Институт • Logos Bible Institute
               </span>
             </div>
           </div>

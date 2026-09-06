@@ -1,23 +1,35 @@
 {
-  "name": "Академическая Читалка • Богословие Нового Завета",
-  "short_name": "Читалка",
-  "description": "Двуязычный академический ридер с картотекой мыслей и оригинальными сканами",
+  "name": "Библейский Институт «Логос» • Академическая Читалка",
+  "short_name": "Логос",
+  "description": "Академическая онлайн-читалка Библейского Института «Логос» с параллельным оригинальным текстом, постраничной верификацией сканов, векторными схемами и картотекой цитат",
   "start_url": "/",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#fbf8f2",
-  "theme_color": "#8b4513",
+  "theme_color": "#7a181d",
   "icons": [
-    {
-      "src": "/icons.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    },
     {
       "src": "/favicon.svg",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
     }
   ]
 }

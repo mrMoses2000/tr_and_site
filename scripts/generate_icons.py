@@ -1,4 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+import os
+import pymupdf
+from PIL import Image
+
+# SVG design for Logos Bible Institute Emblem
+SVG_EMBLEM = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
     <!-- Background Gradient: Deep Academic Burgundy / Oxblood -->
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -125,4 +130,42 @@
   <g transform="translate(256, 466)">
     <text text-anchor="middle" font-family="'Cinzel', 'Trajan Pro', 'Georgia', serif" font-size="28" font-weight="700" letter-spacing="10" fill="url(#goldGrad)">ЛОГОС</text>
   </g>
-</svg>
+</svg>"""
+
+print("Writing favicon.svg and generating companion PNGs...")
+os.makedirs("app/public", exist_ok=True)
+with open("app/public/favicon.svg", "w", encoding="utf-8") as f:
+    f.write(SVG_EMBLEM)
+
+# Generate PNGs using pymupdf
+doc = pymupdf.open("app/public/favicon.svg")
+page = doc[0]
+w0 = page.rect.width
+h0 = page.rect.height
+
+def render_size(target_w, target_h, filename):
+    mat = pymupdf.Matrix(target_w / w0, target_h / h0)
+    pix = page.get_pixmap(matrix=mat, alpha=True)
+    pix.save(filename)
+    print(f"Saved {filename} ({pix.width}x{pix.height})")
+
+# 512x512
+render_size(512, 512, "app/public/icon-512.png")
+
+# 192x192
+render_size(192, 192, "app/public/icon-192.png")
+
+# 180x180 (Apple touch icon)
+render_size(180, 180, "app/public/apple-touch-icon.png")
+
+# 32x32 & 16x16
+render_size(32, 32, "app/public/favicon-32x32.png")
+render_size(16, 16, "app/public/favicon-16x16.png")
+
+# Save ICO
+img32 = Image.open("app/public/favicon-32x32.png")
+img16 = Image.open("app/public/favicon-16x16.png")
+img32.save("app/public/favicon.ico", format="ICO", sizes=[(32, 32), (16, 16)])
+print("Saved app/public/favicon.ico")
+
+print("Favicons and app icons generated successfully.")

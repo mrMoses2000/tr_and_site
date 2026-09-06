@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 1200px;
+      height: 630px;
+      background: radial-gradient(circle at 30% 40%, #540e12 0%, #300608 70%, #170204 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Serif", Georgia, serif;
+      color: #f7f3eb;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 60px 75px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Elegant inner gold border */
+    .frame-border {
+      position: absolute;
+      top: 24px; left: 24px; right: 24px; bottom: 24px;
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      border-radius: 20px;
+      pointer-events: none;
+    }
+    .frame-inner {
+      position: absolute;
+      top: 30px; left: 30px; right: 30px; bottom: 30px;
+      border: 1px dashed rgba(212, 175, 55, 0.2);
+      border-radius: 16px;
+      pointer-events: none;
+    }
+
+    /* Left emblem side */
+    .emblem-container {
+      flex: 0 0 360px;
+      height: 360px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .emblem-img {
+      width: 340px;
+      height: 340px;
+      filter: drop-shadow(0 20px 30px rgba(0,0,0,0.6));
+    }
+
+    /* Right text & content side */
+    .content-container {
+      flex: 1;
+      margin-left: 60px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      color: #e5c158;
+      margin-bottom: 14px;
+    }
+    .badge-dot {
+      width: 6px;
+      height: 6px;
+      background-color: #d4af37;
+      border-radius: 50%;
+    }
+
+    .main-title {
+      font-size: 42px;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.5px;
+      color: #ffffff;
+      margin-bottom: 8px;
+      font-family: "Georgia", serif;
+    }
+    .institute-title {
+      font-size: 22px;
+      font-weight: 500;
+      color: #dfbe6f;
+      letter-spacing: 0.5px;
+      margin-bottom: 20px;
+      font-family: "Georgia", serif;
+    }
+
+    .description {
+      font-size: 17px;
+      line-height: 1.5;
+      color: #e2d7c5;
+      margin-bottom: 28px;
+      max-width: 620px;
+    }
+
+    .books-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .book-tag {
+      display: flex;
+      align-items: center;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(212, 175, 55, 0.4);
+      padding: 8px 14px;
+      border-radius: 10px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: #faecc8;
+    }
+    .book-tag span {
+      opacity: 0.65;
+      margin-left: 6px;
+      font-weight: 400;
+      font-size: 12px;
+    }
+
+    .meta-footer {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-size: 13px;
+      color: #b5a292;
+      font-weight: 500;
+    }
+    .meta-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="frame-border"></div>
+  <div class="frame-inner"></div>
+
+  <div class="emblem-container">
+    <img class="emblem-img" src="file:///home/moses/tr_and_site/app/public/icon-512.png" alt="Logos Emblem">
+  </div>
+
+  <div class="content-container">
+    <div class="badge">
+      <span class="badge-dot"></span>
+      <span>БИБЛЕЙСКИЙ ИНСТИТУТ • LOGOS BIBLE INSTITUTE</span>
+    </div>
+
+    <h1 class="main-title">Академическая Читалка</h1>
+    <h2 class="institute-title">Цифровая библиотека и картотека экзегетических исследований</h2>
+
+    <p class="description">
+      Постраничная верификация сканов высокого разрешения, параллельный текст, 36 векторных схем и система научных карточек цитат.
+    </p>
+
+    <div class="books-badges">
+      <div class="book-tag">
+        Г. Озборн: Герменевтическая спираль <span>(736 с., 36 схем)</span>
+      </div>
+      <div class="book-tag">
+        Т. Шрайнер: Богословие Нового Завета <span>(двуязычный корпус)</span>
+      </div>
+    </div>
+
+    <div class="meta-footer">
+      <div class="meta-item">✓ Постраничная сверка</div>
+      <div class="meta-item">✓ Векторные схемы</div>
+      <div class="meta-item">✓ Картотека цитат</div>
+      <div class="meta-item">✓ Офлайн-доступ PWA</div>
+    </div>
+  </div>
+</body>
+</html>
